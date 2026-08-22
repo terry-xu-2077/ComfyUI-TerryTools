@@ -9,7 +9,7 @@ const TYPE_WIDGETS = {
   VIDEO:["video_format","video_codec","video_encoding","video_crf"],
   STRING:["text_extension","text_custom_extension"],
 };
-const FILE_WIDGETS = ["filename"];
+const FILE_WIDGETS = ["filename","append_sequence"];
 
 function isTarget(node) {
   return [node?.comfyClass,node?.type,node?.constructor?.type,node?.constructor?.nodeData?.name].some((v)=>String(v||"")===NODE_ID);
@@ -19,16 +19,16 @@ function initNode(node) {
   if (!isTarget(node) || typeof node.addDOMWidget !== "function") return;
   installFileSavePanel(node, {
     panelProp:PANEL_PROP,
-    widgetName:"terry_file_save_no_sequence_panel",
+    widgetName:"terry_file_save_panel",
     typeWidgets:TYPE_WIDGETS,
     fileWidgets:FILE_WIDGETS,
-    sequence:false,
+    sequence:true,
   });
   scheduleFileSavePanel(node, PANEL_PROP);
 }
 
 app.registerExtension({
-  name:"TerryTools.FileSaveNoSequence.RoundedPanel",
+  name:"TerryTools.FileSave.RoundedPanel",
   beforeRegisterNodeDef(nodeType,nodeData) {
     if (nodeData.name !== NODE_ID) return;
     const created = nodeType.prototype.onNodeCreated;
