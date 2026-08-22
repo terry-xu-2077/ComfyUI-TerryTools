@@ -8,7 +8,7 @@ const EMPTY_TYPE = "*";
 const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
 const LANE_FIELD = "terry_lane_id";
-const COMPACT_NODE_WIDTH = 140;
+const COMPACT_NODE_WIDTH = 112;
 const COMPACT_NODE_MIN_HEIGHT = 280;
 const COMPACT_NODE_HEADER_HEIGHT = 160;
 const COMPACT_NODE_LANE_HEIGHT = 40;
@@ -421,7 +421,11 @@ function compactBusNodeHeight(laneCount) {
 }
 
 function resizeCompactBusNode(node, laneCount) {
-  node?.setSize?.([COMPACT_NODE_WIDTH, compactBusNodeHeight(laneCount)]);
+  if (!node) return;
+  const minHeight = compactBusNodeHeight(laneCount);
+  node.__terryBusCompactWidth = COMPACT_NODE_WIDTH;
+  node.__terryBusMinHeight = minHeight;
+  node.setSize?.([COMPACT_NODE_WIDTH, minHeight]);
 }
 
 function syncUnpack(unpack, force = false) {

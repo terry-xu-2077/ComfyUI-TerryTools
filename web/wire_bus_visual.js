@@ -337,9 +337,27 @@ function refreshVuePortStyle() {
   const unpackRows = [];
   const packInputGroups = [];
   const unpackOutputGroups = [];
+  const nodeLayoutRules = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
+    const expandedRoot = `${root}:not([data-collapsed])`;
+    const compactWidth = Math.max(80, Number(node?.__terryBusCompactWidth) || 112);
+    const minBodyHeight = Math.max(0, Number(node?.__terryBusMinHeight) || Number(node?.size?.[1]) || 0);
+    const minHeight = minBodyHeight + nodeTitleHeight();
+    nodeLayoutRules.push(`
+${expandedRoot}{
+  --min-node-width:${compactWidth}px !important;
+  --node-width:${compactWidth}px !important;
+  min-width:${compactWidth}px !important;
+  min-height:${minHeight}px !important;
+}
+${expandedRoot} [data-testid="node-inner-wrapper"]{
+  width:${compactWidth}px !important;
+  min-width:${compactWidth}px !important;
+  min-height:${minHeight}px !important;
+}
+`);
     if (nodeType(node) === PACK_TYPE) {
       packInputGroups.push(`${root} :has(> .lg-slot--input)`);
       packRows.push(`${root} .lg-slot--output`);
@@ -358,6 +376,7 @@ function refreshVuePortStyle() {
   ];
 
   style.textContent = selectors.length ? `
+${nodeLayoutRules.join("\n")}
 ${packInputGroups.join(",\n")}{
   position:absolute !important;
   left:0;
@@ -466,6 +485,13 @@ function patchBusNode(node) {
     } catch (error) {
       console.warn("[Terry Wire Bus] Failed to draw bus capsule port", error);
     }
+    return result;
+  };
+
+  const originalResize = node.onResize;
+  node.onResize = function () {
+    const result = originalResize?.apply?.(this, arguments);
+    queueVueStyleRefresh();
     return result;
   };
 }
