@@ -5,17 +5,17 @@ function installStyle() {
   const style = document.createElement("style");
   style.id = "terry-file-save-panel-style";
   style.textContent = `
-.terry-file-save-panel{width:100%;box-sizing:border-box;padding:6px 7px 8px;font-family:Inter,system-ui,sans-serif;color:var(--input-text,#ddd);display:flex;flex-direction:column;gap:9px}
-.terry-file-save-card{box-sizing:border-box;padding:8px;border:1px solid rgba(255,255,255,.11);border-radius:7px;background:rgba(0,0,0,.12);display:flex;flex-direction:column;gap:7px}
+.terry-file-save-panel{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:6px 7px 8px;font-family:Inter,system-ui,sans-serif;color:var(--input-text,#ddd);display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.terry-file-save-card{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:8px;border:1px solid rgba(255,255,255,.11);border-radius:7px;background:rgba(0,0,0,.12);display:flex;flex-direction:column;gap:7px;overflow:hidden}
 .terry-file-save-card.is-media{border-color:rgba(96,165,250,.22);background:rgba(96,165,250,.035)}
 .terry-file-save-card.is-file{border-color:rgba(255,255,255,.11);background:rgba(0,0,0,.10)}
-.terry-file-save-row{display:grid;grid-template-columns:minmax(108px,.42fr) minmax(130px,.58fr);align-items:center;gap:10px;min-height:30px}
-.terry-file-save-label{font-size:11px;line-height:1.25;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.terry-file-save-control{width:100%;height:30px;box-sizing:border-box;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.055);color:inherit;font:11px Inter,system-ui,sans-serif;outline:none;padding:0 8px}
+.terry-file-save-row{width:100%;max-width:100%;min-width:0;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,36%) minmax(0,1fr);align-items:center;gap:10px;min-height:30px}
+.terry-file-save-label{min-width:0;max-width:100%;font-size:11px;line-height:1.25;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.terry-file-save-control{display:block;width:100%;max-width:100%;min-width:0;height:30px;box-sizing:border-box;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.055);color:inherit;font:11px Inter,system-ui,sans-serif;outline:none;padding:0 8px}
 .terry-file-save-control:focus{border-color:rgba(255,255,255,.25);box-shadow:0 0 0 1px rgba(255,255,255,.05)}
 .terry-file-save-control[type=number]{text-align:left}
-.terry-file-save-check-wrap{height:30px;display:flex;align-items:center;justify-content:flex-end}
-.terry-file-save-check{appearance:none;width:42px;height:24px;border-radius:999px;background:rgba(255,255,255,.13);position:relative;cursor:pointer;transition:background .12s ease}
+.terry-file-save-check-wrap{width:100%;max-width:100%;min-width:0;height:30px;display:flex;align-items:center;justify-content:flex-end;box-sizing:border-box}
+.terry-file-save-check{appearance:none;flex:0 0 auto;width:42px;height:24px;border-radius:999px;background:rgba(255,255,255,.13);position:relative;cursor:pointer;transition:background .12s ease}
 .terry-file-save-check:after{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:rgba(10,10,10,.92);transition:transform .12s ease,background .12s ease}
 .terry-file-save-check:checked{background:rgba(96,165,250,.55)}
 .terry-file-save-check:checked:after{transform:translateX(18px);background:#f4f4f4}
@@ -91,7 +91,7 @@ const FALLBACK_LABELS = {
   image_compress_level:["PNG 压缩等级","PNG Compression"], audio_format:["音频格式","Audio Format"], audio_quality:["音频质量","Audio Quality"],
   video_format:["视频容器","Video Container"], video_codec:["视频编码","Video Codec"], video_encoding:["H.264 编码模式","H.264 Mode"], video_crf:["H.264 CRF","H.264 CRF"],
   text_extension:["文本后缀","Text Extension"], text_custom_extension:["自定义文本后缀","Custom Text Extension"],
-  filename:["文件名","Filename"], filename_template:["文件名","Filename"], date_format:["日期格式","Date Format"], append_sequence:["尾部添加序列号","Append Sequence"],
+  filename:["文件名","Filename"], filename_template:["文件名","Filename"], date_format:["日期格式","Date Format"], append_sequence:["尾部添加序号","Append Sequence"],
   sequence_start:["起始序号","Sequence Start"], sequence_padding:["序号位数","Sequence Padding"],
 };
 
@@ -214,9 +214,18 @@ export function installFileSavePanel(node, config) {
         item.sync();
       }
       mediaCard.style.display = mediaCount ? "flex" : "none";
+      root.style.width = "100%";
+      root.style.maxWidth = "100%";
+      root.style.minWidth = "0";
+      if (root.parentElement) {
+        root.parentElement.style.width = "100%";
+        root.parentElement.style.maxWidth = "100%";
+        root.parentElement.style.minWidth = "0";
+        root.parentElement.style.boxSizing = "border-box";
+      }
       try {
         const measured = node.computeSize?.();
-        if (measured) node.setSize?.([Math.max(node.size?.[0] || 0, measured[0] || 0), measured[1]]);
+        if (measured) node.setSize?.([node.size?.[0] || measured[0] || 0, measured[1]]);
       } catch {}
       node.setDirtyCanvas?.(true,true); app.graph?.setDirtyCanvas?.(true,true);
     }
