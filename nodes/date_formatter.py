@@ -4,20 +4,35 @@ from datetime import datetime
 
 from comfy_api.latest import io
 
-from .enhanced_file_save import DATE_FORMATS
+
+_TOKEN_MAP = (
+    ("YYYY", "%Y"),
+    ("YY", "%y"),
+    ("MM", "%m"),
+    ("DD", "%d"),
+    ("HH", "%H"),
+    ("mm", "%M"),
+    ("ss", "%S"),
+)
+
+
+def _to_strftime(value: str) -> str:
+    pattern = str(value or "YYYYMMDDHHmmss")
+    for token, replacement in _TOKEN_MAP:
+        pattern = pattern.replace(token, replacement)
+    return pattern
 
 
 class DateFormatter(io.ComfyNode):
     @classmethod
     def define_schema(cls):
-        format_options = [key for key in DATE_FORMATS.keys() if key != "none"] + ["custom"]
         return io.Schema(
             node_id="TerryDateFormatter",
             display_name="Terry 日期格式化",
             category="TerryTools/Utils",
             description=(
                 "将当前日期/时间按指定格式写入文本中的 %date%。"
-                "输出为普通 STRING，可用于文件名、文件夹、提示词或任意文本拼接。"
+                "格式示例：YYYYMMDDHHmmss、YYYY-MM-DD_HH-mm-ss。"
             ),
             inputs=[
                 io.String.Input(
@@ -26,33 +41,21 @@ class DateFormatter(io.ComfyNode):
                     default="%date%",
                     tooltip="文本中的所有 %date% 都会被当前日期/时间替换。",
                 ),
-                io.Combo.Input(
-                    "date_format",
-                    display_name="日期格式",
-                    options=format_options,
-                    default="YYYYMMDDHHmmss",
-                    tooltip="选择预设格式，或选择 custom 后使用自定义 strftime 格式。",
-                ),
                 io.String.Input(
-                    "custom_format",
-                    display_name="自定义格式",
-                    default="%Y%m%d_%H%M%S",
-                    tooltip="仅在日期格式选择 custom 时使用，语法遵循 Python strftime。",
+                    "format",
+                    display_name="格式",
+                    default="YYYYMMDDHHmmss",
+                    tooltip="YYYY=年，MM=月，DD=日，HH=时，mm=分，ss=秒。",
                 ),
             ],
             outputs=[
                 io.String.Output("text", display_name="格式化文本"),
-                io.String.Output("date", display_name="日期文本"),
             ],
         )
 
     @classmethod
-    def execute(cls, template, date_format, custom_format) -> io.NodeOutput:
-        if date_format == "custom":
-            pattern = custom_format or "%Y%m%d_%H%M%S"
-        else:
-            pattern = DATE_FORMATS.get(str(date_format), "%Y%m%d%H%M%S")
-
+    def execute(cls, template, format) -> io.NodeOutput:
+        pattern = _to_strftime(format)
         date_text = datetime.now().strftime(pattern)
         text = str(template or "").replace("%date%", date_text)
-        return io.NodeOutput(text, date_text)
+        return io.NodeOutput(text)
