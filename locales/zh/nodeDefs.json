@@ -1,25 +1,35 @@
 {
-  "EnhancedFileSave": {
-    "display_name": "Terry 增强文件保存",
-    "description": "一个输入端接收 VIDEO / STRING / IMAGE / AUDIO，按真实输入类型自动保存，并提供精确文件名、可格式化 %date% 日期和可选序列号。",
+  "TerryFileSave": {
+    "display_name": "Terry 文件保存",
+    "description": "一个输入端接收 VIDEO / STRING / IMAGE / AUDIO，按真实输入类型自动显示保存参数，并支持内部或外部文件名以及可选尾部序号。",
     "inputs": {
       "data": {"name": "内容", "tooltip": "支持 VIDEO / STRING / IMAGE / AUDIO。"},
-      "filename_template": {"name": "文件名", "tooltip": "可包含子文件夹，例如 project/shot_%date%。%date% 会按日期格式替换。"},
-      "date_format": {"name": "日期格式", "tooltip": "文件名中的 %date% 按所选格式替换；选择 none 时不加入日期。"},
-      "append_sequence": {"name": "尾部添加序列号", "tooltip": "关闭时不自动补 ComfyUI 计数器；目标已存在时直接覆盖。"},
-      "sequence_start": {"name": "序列号起始值"},
-      "sequence_padding": {"name": "序列号位数"},
-      "image_compress_level": {"name": "PNG 压缩等级", "tooltip": "使用 ComfyUI ImageSaveHelper。"},
+      "filename": {"name": "文件名"},
+      "filename_input": {"name": "文件名", "tooltip": "可连接外部 STRING；连接后优先使用外部文件名。"},
+      "append_sequence": {"name": "尾部添加序号"},
+      "image_compress_level": {"name": "PNG 压缩等级"},
       "audio_format": {"name": "音频格式"},
       "audio_quality": {"name": "音频质量"},
-      "video_format": {"name": "视频容器", "tooltip": "使用当前 ComfyUI 原生 SaveVideo 容器选项。"},
-      "video_codec": {"name": "视频编码", "tooltip": "使用当前 ComfyUI 原生 SaveVideo 编码选项。"},
+      "video_format": {"name": "视频容器"},
+      "video_codec": {"name": "视频编码"},
       "video_encoding": {"name": "H.264 编码模式"},
       "video_crf": {"name": "H.264 CRF"},
       "text_extension": {"name": "文本后缀"},
       "text_custom_extension": {"name": "自定义文本后缀"}
     },
-    "outputs": {"0": {"name": "原内容"}}
+    "outputs": {
+      "0": {"name": "原内容"},
+      "1": {"name": "文件名"},
+      "2": {"name": "文件后缀"}
+    }
+  },
+  "TerryDateFormatter": {
+    "display_name": "Terry 日期格式化",
+    "inputs": {
+      "template": {"name": "文本模板"},
+      "format": {"name": "格式"}
+    },
+    "outputs": {"0": {"name": "格式化文本"}}
   },
   "TerryVideoCompare": {
     "display_name": "Terry 视频对比",
