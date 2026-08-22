@@ -1,6 +1,10 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_ID = "EnhancedFileSave";
+// ComfyUI frontend RenderShape.HollowCircle. Using the native slot shape keeps
+// the emphasis compact and, unlike onDrawForeground decoration, also renders
+// in Nodes 2.0.
+const HOLLOW_CIRCLE = 7;
 
 function isTarget(node) {
   return [
@@ -12,50 +16,35 @@ function isTarget(node) {
   ].some((value) => String(value || "") === NODE_ID);
 }
 
-function slotPosition(node, isInput, index) {
-  const out = [0, 0];
-  const pos = node.getConnectionPos?.(isInput, index, out) || out;
-  let x = Number(pos?.[0]);
-  let y = Number(pos?.[1]);
-  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+function applyDataSlotShape(node) {
+  if (!isTarget(node)) return false;
 
-  // LiteGraph variants may return graph-space coordinates. Foreground drawing
-  // uses node-local coordinates, so normalize when necessary.
-  const nx = Number(node.pos?.[0]) || 0;
-  const ny = Number(node.pos?.[1]) || 0;
-  const width = Number(node.size?.[0]) || 0;
-  const height = Number(node.size?.[1]) || 0;
-  if (x < -16 || x > width + 16 || y < -16 || y > height + 16) {
-    x -= nx;
-    y -= ny;
+  let changed = false;
+  const input = node.inputs?.find((slot) => slot?.name === "data");
+  if (input && input.shape !== HOLLOW_CIRCLE) {
+    input.shape = HOLLOW_CIRCLE;
+    changed = true;
   }
-  return [x, y];
+
+  const output = node.outputs?.find((slot) => slot?.name === "data");
+  if (output && output.shape !== HOLLOW_CIRCLE) {
+    output.shape = HOLLOW_CIRCLE;
+    changed = true;
+  }
+
+  if (changed) {
+    node.setDirtyCanvas?.(true, true);
+    app.graph?.setDirtyCanvas?.(true, true);
+  }
+  return !!(input || output);
 }
 
-function drawRing(ctx, x, y) {
-  ctx.save();
-  ctx.beginPath();
-  ctx.arc(x, y, 8.5, 0, Math.PI * 2);
-  ctx.strokeStyle = "rgba(235, 235, 235, 0.78)";
-  ctx.lineWidth = 2.6;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawDataSlotRings(node, ctx) {
-  if (!ctx) return;
-
-  const inputIndex = node.inputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-  if (inputIndex >= 0) {
-    const pos = slotPosition(node, true, inputIndex);
-    if (pos) drawRing(ctx, pos[0], pos[1]);
-  }
-
-  const outputIndex = node.outputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-  if (outputIndex >= 0) {
-    const pos = slotPosition(node, false, outputIndex);
-    if (pos) drawRing(ctx, pos[0], pos[1]);
-  }
+function schedule(node) {
+  if (!isTarget(node)) return;
+  queueMicrotask(() => applyDataSlotShape(node));
+  requestAnimationFrame(() => applyDataSlotShape(node));
+  setTimeout(() => applyDataSlotShape(node), 80);
+  setTimeout(() => applyDataSlotShape(node), 250);
 }
 
 app.registerExtension({
@@ -65,19 +54,21 @@ app.registerExtension({
     if (nodeData?.name !== NODE_ID || nodeType.prototype.__terryDataSlotRingInstalled) return;
     nodeType.prototype.__terryDataSlotRingInstalled = true;
 
-    const original = nodeType.prototype.onDrawForeground;
-    nodeType.prototype.onDrawForeground = function(ctx) {
-      const result = original?.apply(this, arguments);
-      drawDataSlotRings(this, ctx);
-      return result;
-    };
+    for (const hook of ["onNodeCreated", "onAdded", "onConfigure"]) {
+      const original = nodeType.prototype[hook];
+      nodeType.prototype[hook] = function() {
+        const result = original?.apply(this, arguments);
+        schedule(this);
+        return result;
+      };
+    }
   },
 
   nodeCreated(node) {
-    if (isTarget(node)) node.setDirtyCanvas?.(true, true);
+    schedule(node);
   },
 
   loadedGraphNode(node) {
-    if (isTarget(node)) node.setDirtyCanvas?.(true, true);
+    schedule(node);
   },
 });
