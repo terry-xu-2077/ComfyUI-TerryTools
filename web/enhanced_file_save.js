@@ -32,7 +32,7 @@ const FILE_LABELS = [
 ];
 
 function getWidget(node, name) {
-  return node.widgets?.find((widget) => widget?.name === name) || null;
+  return node.widgets?.find((w) => w?.name === name) || null;
 }
 function setWidgetValue(node, name, value) {
   const widget = getWidget(node, name);
@@ -84,13 +84,14 @@ function repairCorruptedValues(node) {
   const padding = getWidget(node, "sequence_padding");
   if (padding && (!Number.isFinite(Number(padding.value)) || Number(padding.value) < 1)) setWidgetValue(node, "sequence_padding", 5);
 }
+
 function installHideAdapter(widget) {
   if (!widget || widget.__terryHideAdapter) return;
   widget.__terryHideAdapter = true;
-  widget.__terryOriginalComputeSize = typeof widget.computeSize === "function" ? widget.computeSize.bind(widget) : null;
+  const original = typeof widget.computeSize === "function" ? widget.computeSize.bind(widget) : null;
   widget.computeSize = function(width) {
     if (this.hidden) return [0, -4];
-    return this.__terryOriginalComputeSize?.(width) || [width ?? 0, 20];
+    return original?.(width) || [width ?? 0, 20];
   };
 }
 function setWidgetHidden(node, name, hidden) {
@@ -143,6 +144,7 @@ function resizeToContent(node) {
   node.setDirtyCanvas?.(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
 }
+
 function widgetY(widget) {
   for (const value of [widget?.last_y, widget?.y, widget?.pos?.[1]]) {
     const y = Number(value);
@@ -150,31 +152,45 @@ function widgetY(widget) {
   }
   return null;
 }
-function rawBounds(node, names) {
-  const entries = [];
+function classicBounds(node, names) {
+  const ys = [];
   for (const name of names) {
     const widget = getWidget(node, name);
     if (!widget || widget.hidden || widget.options?.hidden) continue;
     const y = widgetY(widget);
-    if (y == null) continue;
-    let h = 24;
-    try {
-      const size = widget.computeSize?.(Math.max(0, (node.size?.[0] || 0) - 24));
-      if (Array.isArray(size) && Number(size[1]) > 0) h = Number(size[1]);
-    } catch {}
-    entries.push({ y, h });
+    if (y != null) ys.push(y);
   }
-  if (!entries.length) return null;
-  return { top: Math.min(...entries.map((e) => e.y)), bottom: Math.max(...entries.map((e) => e.y + e.h)) };
+  if (!ys.length) return null;
+  const sorted = ys.sort((a, b) => a - b);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  let step = 28;
+  if (sorted.length > 1) {
+    const gaps = sorted.slice(1).map((v, i) => v - sorted[i]).filter((v) => v > 8 && v < 80);
+    if (gaps.length) step = Math.min(...gaps);
+  }
+  const rowHeight = Math.min(28, Math.max(20, step - 6));
+  const pad = 7;
+  return { top: first - pad, bottom: last + rowHeight + pad };
 }
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
-  if (typeof ctx.roundRect === "function") { ctx.beginPath(); ctx.roundRect(x, y, w, h, radius); return; }
+  if (typeof ctx.roundRect === "function") {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    return;
+  }
   ctx.beginPath();
-  ctx.moveTo(x + radius, y); ctx.lineTo(x + w - radius, y); ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
-  ctx.lineTo(x + w, y + h - radius); ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
-  ctx.lineTo(x + radius, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
-  ctx.lineTo(x, y + radius); ctx.quadraticCurveTo(x, y, x + radius, y); ctx.closePath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
 }
 function drawBox(node, ctx, bounds) {
   if (!bounds || !ctx) return;
@@ -189,18 +205,17 @@ function drawBox(node, ctx, bounds) {
 }
 function drawParameterGroups(node, ctx) {
   const type = connectedType(node);
-  const mediaRaw = type ? rawBounds(node, TYPE_WIDGETS[type]) : null;
-  const fileRaw = rawBounds(node, FILE_WIDGETS);
-  let media = mediaRaw ? { top: mediaRaw.top - 5, bottom: mediaRaw.bottom + 5 } : null;
-  let file = fileRaw ? { top: fileRaw.top - 5, bottom: fileRaw.bottom + 5 } : null;
-  if (mediaRaw && fileRaw) {
-    const split = (mediaRaw.bottom + fileRaw.top) / 2;
-    media.bottom = Math.min(media.bottom, split - 3);
-    file.top = Math.max(file.top, split + 3);
+  let media = type ? classicBounds(node, TYPE_WIDGETS[type]) : null;
+  let file = classicBounds(node, FILE_WIDGETS);
+  if (media && file && media.bottom > file.top - 6) {
+    const middle = (media.bottom + file.top) / 2;
+    media = { ...media, bottom: middle - 3 };
+    file = { ...file, top: middle + 3 };
   }
   drawBox(node, ctx, media);
   drawBox(node, ctx, file);
 }
+
 function normalizedText(el) {
   return String(el?.textContent || "").replace(/\s+/g, " ").trim();
 }
@@ -209,87 +224,101 @@ function isTargetRoot(root) {
   return text.includes("Terry 增强文件保存") || text.includes("Terry Enhanced File Save");
 }
 function findNodeRoots() {
-  const roots = new Set();
-  for (const el of document.querySelectorAll("[data-node-id]")) if (isTargetRoot(el)) roots.add(el);
-  if (roots.size) return [...roots];
-  for (const el of document.querySelectorAll("div")) {
-    if (!isTargetRoot(el)) continue;
-    let p = el;
-    while (p?.parentElement && isTargetRoot(p.parentElement)) p = p.parentElement;
-    if (p && p !== document.body) roots.add(p);
+  const roots = [];
+  for (const el of document.querySelectorAll("[data-node-id]")) {
+    if (isTargetRoot(el)) roots.push(el);
   }
-  return [...roots];
+  return roots;
 }
-function labelRow(root, label) {
+function labelRect(root, label) {
   const rootRect = root.getBoundingClientRect();
+  let best = null;
   for (const el of root.querySelectorAll("*")) {
     if (normalizedText(el) !== label) continue;
     let row = el;
-    for (let i = 0; i < 6 && row?.parentElement && row.parentElement !== root; i++) {
+    for (let i = 0; i < 5 && row?.parentElement && row.parentElement !== root; i++) {
       const pr = row.parentElement.getBoundingClientRect();
-      if (pr.width >= rootRect.width * 0.65 && pr.height >= 20 && pr.height <= 80) row = row.parentElement;
+      if (pr.width >= rootRect.width * 0.55 && pr.height >= 22 && pr.height <= 72) row = row.parentElement;
       else break;
     }
-    return row;
-  }
-  return null;
-}
-function domBounds(root, labels) {
-  const rootRect = root.getBoundingClientRect();
-  const rects = [];
-  const seen = new Set();
-  for (const label of labels) {
-    const row = labelRow(root, label);
-    if (!row || seen.has(row)) continue;
-    seen.add(row);
     const r = row.getBoundingClientRect();
-    if (r.width > 0 && r.height > 0) rects.push(r);
+    if (!best || r.width > best.width) best = r;
+  }
+  return best;
+}
+function screenBounds(root, labels) {
+  const rects = [];
+  for (const label of labels) {
+    const r = labelRect(root, label);
+    if (r && r.width > 0 && r.height > 0) rects.push(r);
   }
   if (!rects.length) return null;
-  return { top: Math.min(...rects.map((r) => r.top)) - rootRect.top, bottom: Math.max(...rects.map((r) => r.bottom)) - rootRect.top };
+  return {
+    top: Math.min(...rects.map((r) => r.top)) - 6,
+    bottom: Math.max(...rects.map((r) => r.bottom)) + 6,
+  };
 }
-function ensureOverlay(root, key) {
-  let el = root.querySelector(`:scope > .terry-enhanced-group-box-${key}`);
+function ensureFixedOverlay(key) {
+  const id = `terry-enhanced-fixed-${key}`;
+  let el = document.getElementById(id);
   if (!el) {
     el = document.createElement("div");
-    el.className = `terry-enhanced-group-box-${key}`;
+    el.id = id;
     Object.assign(el.style, {
-      position: "absolute", left: "10px", right: "10px",
-      border: "1px solid rgba(180,180,180,.24)", borderRadius: "10px",
-      pointerEvents: "none", boxSizing: "border-box", zIndex: "2",
+      position: "fixed",
+      border: "1px solid rgba(180,180,180,.24)",
+      borderRadius: "10px",
+      pointerEvents: "none",
+      boxSizing: "border-box",
+      zIndex: "9999",
+      display: "none",
     });
-    root.appendChild(el);
+    document.body.appendChild(el);
   }
   return el;
 }
 function updateNodes2Boxes() {
-  for (const root of findNodeRoots()) {
-    if (getComputedStyle(root).position === "static") root.style.position = "relative";
-    const mediaRaw = domBounds(root, MEDIA_LABELS);
-    const fileRaw = domBounds(root, FILE_LABELS);
-    const mediaEl = ensureOverlay(root, "media");
-    const fileEl = ensureOverlay(root, "file");
-    let media = mediaRaw ? { top: mediaRaw.top - 5, bottom: mediaRaw.bottom + 5 } : null;
-    let file = fileRaw ? { top: fileRaw.top - 5, bottom: fileRaw.bottom + 5 } : null;
-    if (mediaRaw && fileRaw) {
-      const split = (mediaRaw.bottom + fileRaw.top) / 2;
-      media.bottom = Math.min(media.bottom, split - 3);
-      file.top = Math.max(file.top, split + 3);
+  const roots = findNodeRoots();
+  const active = [];
+  roots.forEach((root, index) => {
+    const rootRect = root.getBoundingClientRect();
+    const mediaRaw = screenBounds(root, MEDIA_LABELS);
+    const fileRaw = screenBounds(root, FILE_LABELS);
+    let media = mediaRaw;
+    let file = fileRaw;
+    if (media && file && media.bottom > file.top - 6) {
+      const middle = (media.bottom + file.top) / 2;
+      media = { ...media, bottom: middle - 3 };
+      file = { ...file, top: middle + 3 };
     }
-    for (const [el, b] of [[mediaEl, media], [fileEl, file]]) {
-      if (!b || b.bottom <= b.top) { el.style.display = "none"; continue; }
+    for (const [kind, bounds] of [["media", media], ["file", file]]) {
+      const el = ensureFixedOverlay(`${kind}-${index}`);
+      active.push(el);
+      if (!bounds || bounds.bottom <= bounds.top) {
+        el.style.display = "none";
+        continue;
+      }
       el.style.display = "block";
-      el.style.top = `${b.top}px`;
-      el.style.height = `${b.bottom - b.top}px`;
+      el.style.left = `${rootRect.left + 10}px`;
+      el.style.width = `${Math.max(0, rootRect.width - 20)}px`;
+      el.style.top = `${bounds.top}px`;
+      el.style.height = `${bounds.bottom - bounds.top}px`;
     }
+  });
+  for (const el of document.querySelectorAll('[id^="terry-enhanced-fixed-"]')) {
+    if (!active.includes(el)) el.style.display = "none";
   }
 }
 let domQueued = false;
 function queueNodes2Refresh() {
   if (domQueued) return;
   domQueued = true;
-  requestAnimationFrame(() => { domQueued = false; updateNodes2Boxes(); });
+  requestAnimationFrame(() => {
+    domQueued = false;
+    updateNodes2Boxes();
+  });
 }
+
 function applyDynamicPanel(node) {
   repairCorruptedValues(node);
   for (const name of ALL_TYPE_WIDGETS) setWidgetHidden(node, name, true);
@@ -325,9 +354,7 @@ function schedulePanelRefresh(node) {
   requestAnimationFrame(() => applyDynamicPanel(node));
   setTimeout(() => applyDynamicPanel(node), 50);
   setTimeout(() => applyDynamicPanel(node), 180);
-  queueNodes2Refresh();
-  setTimeout(queueNodes2Refresh, 80);
-  setTimeout(queueNodes2Refresh, 250);
+  setTimeout(queueNodes2Refresh, 300);
 }
 function initNode(node) {
   for (const widget of node.widgets || []) installHideAdapter(widget);
@@ -340,6 +367,8 @@ function installObserver() {
   if (observer || !document.body) return;
   observer = new MutationObserver(queueNodes2Refresh);
   observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  window.addEventListener("resize", queueNodes2Refresh, { passive: true });
+  window.addEventListener("scroll", queueNodes2Refresh, { passive: true, capture: true });
 }
 
 app.registerExtension({
