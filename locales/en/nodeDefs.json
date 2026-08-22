@@ -1,25 +1,35 @@
 {
-  "EnhancedFileSave": {
-    "display_name": "Terry Enhanced File Save",
-    "description": "Save VIDEO / STRING / IMAGE / AUDIO from one input, with exact filenames, selectable %date% formatting and optional sequence numbers.",
+  "TerryFileSave": {
+    "display_name": "Terry File Save",
+    "description": "Save VIDEO / STRING / IMAGE / AUDIO from one input with type-aware controls, internal or external filenames, and an optional sequence suffix.",
     "inputs": {
       "data": {"name": "Content", "tooltip": "Supports VIDEO / STRING / IMAGE / AUDIO."},
-      "filename_template": {"name": "Filename", "tooltip": "May include subfolders such as project/shot_%date%. %date% uses the selected date format."},
-      "date_format": {"name": "Date format", "tooltip": "Replaces %date% using the selected format; choose none for no date."},
-      "append_sequence": {"name": "Append sequence number", "tooltip": "When disabled, no automatic ComfyUI counter is appended. Existing targets are overwritten."},
-      "sequence_start": {"name": "Sequence start"},
-      "sequence_padding": {"name": "Sequence digits"},
-      "image_compress_level": {"name": "PNG compression level", "tooltip": "Uses ComfyUI ImageSaveHelper."},
+      "filename": {"name": "Filename"},
+      "filename_input": {"name": "Filename", "tooltip": "Connect an external STRING; when connected it overrides the internal filename."},
+      "append_sequence": {"name": "Append sequence"},
+      "image_compress_level": {"name": "PNG compression level"},
       "audio_format": {"name": "Audio format"},
       "audio_quality": {"name": "Audio quality"},
-      "video_format": {"name": "Video container", "tooltip": "Uses the current ComfyUI native SaveVideo container options."},
-      "video_codec": {"name": "Video codec", "tooltip": "Uses the current ComfyUI native SaveVideo codec options."},
+      "video_format": {"name": "Video container"},
+      "video_codec": {"name": "Video codec"},
       "video_encoding": {"name": "H.264 encoding mode"},
       "video_crf": {"name": "H.264 CRF"},
       "text_extension": {"name": "Text extension"},
       "text_custom_extension": {"name": "Custom text extension"}
     },
-    "outputs": {"0": {"name": "Original content"}}
+    "outputs": {
+      "0": {"name": "Original content"},
+      "1": {"name": "Filename"},
+      "2": {"name": "File extension"}
+    }
+  },
+  "TerryDateFormatter": {
+    "display_name": "Terry Date Formatter",
+    "inputs": {
+      "template": {"name": "Text template"},
+      "format": {"name": "Format"}
+    },
+    "outputs": {"0": {"name": "Formatted text"}}
   },
   "TerryVideoCompare": {
     "display_name": "Terry Video Compare",
