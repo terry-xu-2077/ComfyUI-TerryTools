@@ -14,10 +14,6 @@ function isTarget(node) {
   ].some((value) => String(value || "") === NODE_ID);
 }
 
-function attrEscape(value) {
-  return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
-}
-
 function pointForSlot(node, isInput, index) {
   const point = isInput
     ? node?.getInputPos?.(index)
@@ -25,8 +21,7 @@ function pointForSlot(node, isInput, index) {
   if (Array.isArray(point) && point.length >= 2) return point;
 
   const out = [0, 0];
-  const fallback = node?.getConnectionPos?.(isInput, index, out) || out;
-  return fallback;
+  return node?.getConnectionPos?.(isInput, index, out) || out;
 }
 
 function drawCompactRing(ctx, node, isInput, index) {
@@ -63,35 +58,7 @@ function drawClassicRings(node, ctx) {
   if (outputIndex >= 0) drawCompactRing(ctx, node, false, outputIndex);
 }
 
-function targetNodes() {
-  return (app.graph?._nodes || []).filter(isTarget);
-}
-
-function markVueDataPorts() {
-  for (const node of targetNodes()) {
-    if (node?.id == null) continue;
-    const root = document.querySelector(`[data-node-id="${attrEscape(node.id)}"]`);
-    if (!root) continue;
-
-    for (const el of root.querySelectorAll(`.${VUE_MARK_CLASS}`)) {
-      el.classList.remove(VUE_MARK_CLASS);
-    }
-
-    const inputIndex = node.inputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-    if (inputIndex >= 0) {
-      const inputs = root.querySelectorAll(".lg-slot--input");
-      inputs[inputIndex]?.classList.add(VUE_MARK_CLASS);
-    }
-
-    const outputIndex = node.outputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-    if (outputIndex >= 0) {
-      const outputs = root.querySelectorAll(".lg-slot--output");
-      outputs[outputIndex]?.classList.add(VUE_MARK_CLASS);
-    }
-  }
-}
-
-function refreshVuePortStyle() {
+function installVueStyle() {
   let style = document.getElementById(VUE_STYLE_ID);
   if (!style) {
     style = document.createElement("style");
@@ -121,25 +88,70 @@ function refreshVuePortStyle() {
   flex:none;
 }
 `;
-
-  markVueDataPorts();
 }
 
-let vueStyleQueued = false;
-function queueVueStyleRefresh() {
-  if (vueStyleQueued) return;
-  vueStyleQueued = true;
+function normalizedText(el) {
+  return String(el?.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+function isEnhancedSaveRoot(root) {
+  const text = normalizedText(root);
+  return text.includes("Terry 增强文件保存") || text.includes("Terry Enhanced File Save");
+}
+
+function markVueDataPorts() {
+  installVueStyle();
+
+  for (const el of document.querySelectorAll(`.${VUE_MARK_CLASS}`)) {
+    el.classList.remove(VUE_MARK_CLASS);
+  }
+
+  for (const slot of document.querySelectorAll(".lg-slot--input, .lg-slot--output")) {
+    const text = normalizedText(slot);
+    const isInput = slot.classList.contains("lg-slot--input");
+    const isOutput = slot.classList.contains("lg-slot--output");
+
+    const labelMatches =
+      (isInput && (text === "内容" || text === "Content")) ||
+      (isOutput && (text === "原内容" || text === "Original content" || text === "Original Content"));
+    if (!labelMatches) continue;
+
+    // Prefer exact node scoping when Nodes 2.0 exposes the node root. Some
+    // frontend builds do not expose data-node-id consistently, so fall back to
+    // the nearest large node container and verify its visible title text.
+    let root = slot.closest("[data-node-id]");
+    if (!root) {
+      let parent = slot.parentElement;
+      while (parent && parent !== document.body) {
+        if (isEnhancedSaveRoot(parent)) {
+          root = parent;
+          break;
+        }
+        parent = parent.parentElement;
+      }
+    }
+
+    if (root && !isEnhancedSaveRoot(root)) continue;
+    slot.classList.add(VUE_MARK_CLASS);
+  }
+}
+
+let vueRefreshQueued = false;
+function queueVueRefresh() {
+  if (vueRefreshQueued) return;
+  vueRefreshQueued = true;
   requestAnimationFrame(() => {
-    vueStyleQueued = false;
-    refreshVuePortStyle();
+    vueRefreshQueued = false;
+    markVueDataPorts();
   });
 }
 
 function scheduleVueRefresh() {
-  queueVueStyleRefresh();
-  setTimeout(queueVueStyleRefresh, 60);
-  setTimeout(queueVueStyleRefresh, 180);
-  setTimeout(queueVueStyleRefresh, 400);
+  queueVueRefresh();
+  setTimeout(queueVueRefresh, 60);
+  setTimeout(queueVueRefresh, 180);
+  setTimeout(queueVueRefresh, 400);
+  setTimeout(queueVueRefresh, 900);
 }
 
 function patchNode(node) {
@@ -167,14 +179,23 @@ function patchNode(node) {
 }
 
 function patchExistingNodes() {
-  for (const node of targetNodes()) patchNode(node);
+  for (const node of app.graph?._nodes || []) patchNode(node);
   scheduleVueRefresh();
+}
+
+let observer = null;
+function installVueObserver() {
+  if (observer || !document.body) return;
+  observer = new MutationObserver(() => queueVueRefresh());
+  observer.observe(document.body, { childList: true, subtree: true });
 }
 
 app.registerExtension({
   name: "TerryTools.EnhancedFileSave.DataSlotRing",
 
   setup() {
+    installVueStyle();
+    installVueObserver();
     patchExistingNodes();
   },
 
