@@ -70,11 +70,8 @@ function makeDivider(node) {
   Object.assign(line.style, {
     position: "absolute",
     top: "13px",
-    // Nodes 2.0 places DOM widgets in the value column, which is roughly
-    // two thirds of the node width. Extending by half of that column to the
-    // left reconstructs the full row width without tracking node position.
-    left: "-50%",
-    width: "150%",
+    left: "calc(-100% + 12px)",
+    width: "calc(200% - 24px)",
     height: "1px",
     background: "rgba(180,180,180,.28)",
     pointerEvents: "none",
