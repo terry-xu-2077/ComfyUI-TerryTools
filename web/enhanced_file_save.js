@@ -119,6 +119,18 @@ function makeDivider(node) {
     overflow: "hidden",
   });
 
+  const line = document.createElement("div");
+  Object.assign(line.style, {
+    position: "absolute",
+    left: "12px",
+    right: "12px",
+    top: "13px",
+    height: "1px",
+    background: "rgba(180,180,180,.28)",
+    pointerEvents: "none",
+  });
+  element.appendChild(line);
+
   const widget = node.addDOMWidget("terry_save_divider", "div", element, {
     serialize: false,
     hideOnZoom: false,
@@ -129,77 +141,8 @@ function makeDivider(node) {
     return [width ?? 0, 28];
   };
 
-  node.__terrySaveDivider = { element, widget, vueRow: null, vueLine: null };
+  node.__terrySaveDivider = { element, line, widget };
   return node.__terrySaveDivider;
-}
-
-function syncNodes2Divider(node) {
-  const divider = node.__terrySaveDivider;
-  if (!divider) return;
-
-  requestAnimationFrame(() => {
-    const row = divider.element.closest?.(".lg-node-widget");
-
-    // Classic mode does not have the Vue row wrapper. Remove any DOM line so
-    // only the Canvas separator is visible there.
-    if (!row) {
-      divider.vueLine?.remove?.();
-      divider.vueLine = null;
-      divider.vueRow = null;
-      return;
-    }
-
-    if (divider.vueRow !== row) {
-      divider.vueLine?.remove?.();
-      divider.vueRow = row;
-      divider.vueLine = null;
-    }
-
-    if (!divider.vueLine) {
-      const line = document.createElement("div");
-      line.className = "terry-save-nodes2-divider-line";
-      Object.assign(line.style, {
-        position: "absolute",
-        left: "12px",
-        right: "12px",
-        top: "50%",
-        height: "1px",
-        background: "rgba(180,180,180,.28)",
-        transform: "translateY(-0.5px)",
-        pointerEvents: "none",
-        zIndex: "1",
-      });
-      if (getComputedStyle(row).position === "static") row.style.position = "relative";
-      row.appendChild(line);
-      divider.vueLine = line;
-    }
-
-    divider.vueLine.style.display = divider.widget.hidden ? "none" : "block";
-  });
-}
-
-function dividerY(node) {
-  const widget = node.__terrySaveDivider?.widget;
-  if (!widget || widget.hidden) return null;
-  for (const value of [widget.last_y, widget.y, widget.pos?.[1]]) {
-    const y = Number(value);
-    if (Number.isFinite(y) && y >= 0) return y + 14;
-  }
-  return null;
-}
-function drawClassicDivider(node, ctx) {
-  const y = dividerY(node);
-  if (y == null || !ctx) return;
-  const width = Number(node.size?.[0]) || 0;
-  if (width <= 40) return;
-  ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(12, y + 0.5);
-  ctx.lineTo(width - 12, y + 0.5);
-  ctx.strokeStyle = "rgba(180,180,180,.28)";
-  ctx.lineWidth = 1;
-  ctx.stroke();
-  ctx.restore();
 }
 
 function getGraphLink(graph, linkId) {
@@ -270,7 +213,6 @@ function applyDynamicPanel(node) {
     divider.widget.options.hidden = !type;
     divider.element.style.display = type ? "block" : "none";
     moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
-    syncNodes2Divider(node);
   }
 
   resizeToContent(node);
@@ -335,12 +277,6 @@ app.registerExtension({
         info.properties ||= {};
         info.properties[VALUES_PROP] = namedValues(this);
       }
-      return result;
-    };
-    const drawForeground = nodeType.prototype.onDrawForeground;
-    nodeType.prototype.onDrawForeground = function(ctx) {
-      const result = drawForeground?.apply(this, arguments);
-      drawClassicDivider(this, ctx);
       return result;
     };
   },
