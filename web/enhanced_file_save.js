@@ -123,11 +123,8 @@ function makeDivider(node) {
   Object.assign(line.style, {
     position: "absolute",
     top: "13px",
-    // Nodes 2.0 lays DOM widgets out in the right/value column. The value
-    // column is about two thirds of the full row, so half of that width is the
-    // missing label column. Extend left by 50% and total width to 150%.
-    left: "-50%",
-    width: "150%",
+    left: "calc(-100% + 12px)",
+    width: "calc(200% - 24px)",
     height: "1px",
     background: "rgba(180,180,180,.28)",
     pointerEvents: "none",
