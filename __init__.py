@@ -1,7 +1,14 @@
 from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
-from .nodes import EnhancedFileSave, VideoCompare, H3PromptEditor, H3ShotTimeline
+from .nodes import (
+    DateFormatter,
+    EnhancedFileSave,
+    FileSaveNoSequence,
+    H3PromptEditor,
+    H3ShotTimeline,
+    VideoCompare,
+)
 
 WEB_DIRECTORY = "./web"
 
@@ -18,6 +25,8 @@ class TerryToolsExtension(ComfyExtension):
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
             EnhancedFileSave,
+            FileSaveNoSequence,
+            DateFormatter,
             VideoCompare,
             H3PromptEditor,
             H3ShotTimeline,
