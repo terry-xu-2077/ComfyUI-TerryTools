@@ -70,12 +70,14 @@ function makeDivider(node) {
   Object.assign(line.style, {
     position: "absolute",
     top: "13px",
-    left: "0",
-    width: "100%",
+    // Nodes 2.0 places DOM widgets in the value column, which is roughly
+    // two thirds of the node width. Extending by half of that column to the
+    // left reconstructs the full row width without tracking node position.
+    left: "-50%",
+    width: "150%",
     height: "1px",
     background: "rgba(180,180,180,.28)",
     pointerEvents: "none",
-    display: "none",
   });
   element.appendChild(line);
 
@@ -91,25 +93,6 @@ function makeDivider(node) {
 
   node.__terryNoSeqDivider = { element, line, widget };
   return node.__terryNoSeqDivider;
-}
-
-function alignNodes2Divider(node) {
-  const divider = node.__terryNoSeqDivider;
-  if (!divider || divider.widget.hidden) return;
-  requestAnimationFrame(() => {
-    const element = divider.element;
-    const root = element.closest?.("[data-node-id]");
-    if (!root) {
-      divider.line.style.display = "none";
-      return;
-    }
-    const rootRect = root.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    const inset = 12;
-    divider.line.style.left = `${rootRect.left + inset - elementRect.left}px`;
-    divider.line.style.width = `${Math.max(0, rootRect.width - inset * 2)}px`;
-    divider.line.style.display = "block";
-  });
 }
 
 function dividerY(node) {
@@ -213,7 +196,6 @@ function applyDynamicPanel(node) {
     divider.widget.options.hidden = !type;
     divider.element.style.display = type ? "block" : "none";
     moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
-    if (type) alignNodes2Divider(node);
   }
 
   resizeToContent(node);
