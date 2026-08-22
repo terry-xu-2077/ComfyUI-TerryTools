@@ -30,6 +30,9 @@ const FILE_LABELS = [
   "尾部添加序列号","Append Sequence","序列号起始值","Sequence Start",
   "序列号位数","Sequence Padding",
 ];
+const BOX_STROKE = "rgba(180,180,180,.34)";
+const BOX_LINE_WIDTH = 2;
+const DOM_PAD = 14;
 
 function getWidget(node, name) {
   return node.widgets?.find((w) => w?.name === name) || null;
@@ -162,16 +165,17 @@ function classicBounds(node, names) {
   }
   if (!ys.length) return null;
   const sorted = ys.sort((a, b) => a - b);
-  const first = sorted[0];
-  const last = sorted[sorted.length - 1];
   let step = 28;
   if (sorted.length > 1) {
     const gaps = sorted.slice(1).map((v, i) => v - sorted[i]).filter((v) => v > 8 && v < 80);
-    if (gaps.length) step = Math.min(...gaps);
+    if (gaps.length) step = gaps.reduce((a, b) => a + b, 0) / gaps.length;
   }
-  const rowHeight = Math.min(28, Math.max(20, step - 6));
-  const pad = 7;
-  return { top: first - pad, bottom: last + rowHeight + pad };
+  const halfCell = Math.max(13, Math.min(18, step / 2));
+  const pad = 5;
+  return {
+    top: sorted[0] - halfCell - pad,
+    bottom: sorted[sorted.length - 1] + halfCell + pad,
+  };
 }
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -198,8 +202,8 @@ function drawBox(node, ctx, bounds) {
   if (width <= 40 || bounds.bottom <= bounds.top) return;
   ctx.save();
   roundedRectPath(ctx, 10, bounds.top, width - 20, bounds.bottom - bounds.top, 10);
-  ctx.strokeStyle = "rgba(180,180,180,.24)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = BOX_STROKE;
+  ctx.lineWidth = BOX_LINE_WIDTH;
   ctx.stroke();
   ctx.restore();
 }
@@ -207,10 +211,10 @@ function drawParameterGroups(node, ctx) {
   const type = connectedType(node);
   let media = type ? classicBounds(node, TYPE_WIDGETS[type]) : null;
   let file = classicBounds(node, FILE_WIDGETS);
-  if (media && file && media.bottom > file.top - 6) {
+  if (media && file && media.bottom > file.top - 8) {
     const middle = (media.bottom + file.top) / 2;
-    media = { ...media, bottom: middle - 3 };
-    file = { ...file, top: middle + 3 };
+    media = { ...media, bottom: middle - 4 };
+    file = { ...file, top: middle + 4 };
   }
   drawBox(node, ctx, media);
   drawBox(node, ctx, file);
@@ -225,9 +229,7 @@ function isTargetRoot(root) {
 }
 function findNodeRoots() {
   const roots = [];
-  for (const el of document.querySelectorAll("[data-node-id]")) {
-    if (isTargetRoot(el)) roots.push(el);
-  }
+  for (const el of document.querySelectorAll("[data-node-id]")) if (isTargetRoot(el)) roots.push(el);
   return roots;
 }
 function labelRect(root, label) {
@@ -254,8 +256,8 @@ function screenBounds(root, labels) {
   }
   if (!rects.length) return null;
   return {
-    top: Math.min(...rects.map((r) => r.top)) - 6,
-    bottom: Math.max(...rects.map((r) => r.bottom)) + 6,
+    top: Math.min(...rects.map((r) => r.top)) - DOM_PAD,
+    bottom: Math.max(...rects.map((r) => r.bottom)) + DOM_PAD,
   };
 }
 function ensureFixedOverlay(key) {
@@ -266,7 +268,7 @@ function ensureFixedOverlay(key) {
     el.id = id;
     Object.assign(el.style, {
       position: "fixed",
-      border: "1px solid rgba(180,180,180,.24)",
+      border: `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`,
       borderRadius: "10px",
       pointerEvents: "none",
       boxSizing: "border-box",
@@ -282,18 +284,17 @@ function updateNodes2Boxes() {
   const active = [];
   roots.forEach((root, index) => {
     const rootRect = root.getBoundingClientRect();
-    const mediaRaw = screenBounds(root, MEDIA_LABELS);
-    const fileRaw = screenBounds(root, FILE_LABELS);
-    let media = mediaRaw;
-    let file = fileRaw;
-    if (media && file && media.bottom > file.top - 6) {
+    let media = screenBounds(root, MEDIA_LABELS);
+    let file = screenBounds(root, FILE_LABELS);
+    if (media && file && media.bottom > file.top - 8) {
       const middle = (media.bottom + file.top) / 2;
-      media = { ...media, bottom: middle - 3 };
-      file = { ...file, top: middle + 3 };
+      media = { ...media, bottom: middle - 4 };
+      file = { ...file, top: middle + 4 };
     }
     for (const [kind, bounds] of [["media", media], ["file", file]]) {
       const el = ensureFixedOverlay(`${kind}-${index}`);
       active.push(el);
+      el.style.border = `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`;
       if (!bounds || bounds.bottom <= bounds.top) {
         el.style.display = "none";
         continue;
