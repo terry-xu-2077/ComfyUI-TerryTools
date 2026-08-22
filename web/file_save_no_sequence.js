@@ -1,8 +1,8 @@
 import { app } from "../../scripts/app.js";
 import { installFileSavePanel, scheduleFileSavePanel } from "./file_save_panel_ui.js";
 
-const NODE_ID = "TerryFileSaveNoSequence";
-const PANEL_PROP = "__terryNoSeqPanel";
+const NODE_ID = "TerryFileSave";
+const PANEL_PROP = "__terryFileSavePanel";
 const TYPE_WIDGETS = {
   IMAGE:["image_compress_level"],
   AUDIO:["audio_format","audio_quality"],
