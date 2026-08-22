@@ -76,6 +76,78 @@ function busColor(link = null) {
   );
 }
 
+function connectionColor(graph, link) {
+  const { origin, target, originSlot, targetSlot } = linkNodes(graph, link);
+  const type = String(
+    link?.type ||
+      origin?.outputs?.[originSlot]?.type ||
+      target?.inputs?.[targetSlot]?.type ||
+      "*"
+  );
+  const colors = globalThis.LGraphCanvas?.link_type_colors || {};
+  return (
+    link?.color ||
+    colors[type] ||
+    colors[type.toUpperCase?.() || type] ||
+    globalThis.LiteGraph?.LINK_COLOR ||
+    colors["*"] ||
+    "#9ca3af"
+  );
+}
+
+function sameColor(a, b) {
+  return String(a || "").trim().toLowerCase() === String(b || "").trim().toLowerCase();
+}
+
+function upstreamPack(graph, node, seen = new Set()) {
+  if (!node) return null;
+  if (nodeType(node) === PACK_TYPE) return node;
+  const key = String(node.id ?? node);
+  if (seen.has(key)) return null;
+  seen.add(key);
+
+  const incoming = allLinks(graph)
+    .filter((link) => {
+      const targetId = link?.target_id ?? link?.targetId;
+      return String(targetId) === String(node.id) && isBusLink(graph, link);
+    })
+    .sort((a, b) => Number(a?.target_slot ?? a?.targetSlot ?? 0) - Number(b?.target_slot ?? b?.targetSlot ?? 0));
+
+  for (const link of incoming) {
+    const { origin } = linkNodes(graph, link);
+    const found = upstreamPack(graph, origin, seen);
+    if (found) return found;
+  }
+  return null;
+}
+
+function packInputColors(graph, packNode, fallback) {
+  if (!packNode) return [fallback, fallback, fallback];
+  const incoming = allLinks(graph)
+    .filter((link) => {
+      const targetId = link?.target_id ?? link?.targetId;
+      return String(targetId) === String(packNode.id) && !isBusLink(graph, link);
+    })
+    .sort((a, b) => Number(a?.target_slot ?? a?.targetSlot ?? 0) - Number(b?.target_slot ?? b?.targetSlot ?? 0));
+
+  const colors = [];
+  for (const link of incoming) {
+    const color = connectionColor(graph, link);
+    if (!color || colors.some((existing) => sameColor(existing, color))) continue;
+    colors.push(color);
+    if (colors.length >= 3) break;
+  }
+
+  const first = colors[0] || fallback;
+  return [first, colors[1] || first, colors[2] || first];
+}
+
+function lightLaneColors(graph, busLink) {
+  const { origin } = linkNodes(graph, busLink);
+  const pack = upstreamPack(graph, origin);
+  return packInputColors(graph, pack, busColor(busLink));
+}
+
 function drawBusLane(ctx, start, end, color, width, offset, alpha) {
   const sx = start[0];
   const sy = start[1] + offset;
@@ -97,17 +169,17 @@ function drawBusLane(ctx, start, end, color, width, offset, alpha) {
   ctx.restore();
 }
 
-function drawBusCable(ctx, start, end, color, baseWidth) {
+function drawBusCable(ctx, start, end, darkColor, lightColors, baseWidth) {
   const laneWidth = Math.max(2.5, baseWidth);
   const spacing = laneWidth * 0.92;
   const lanes = [
-    { offset: -spacing * 2, alpha: 0.92 },
-    { offset: -spacing, alpha: 0.56 },
-    { offset: 0, alpha: 0.92 },
-    { offset: spacing, alpha: 0.56 },
-    { offset: spacing * 2, alpha: 0.92 },
+    { offset: -spacing * 2, alpha: 0.92, color: lightColors[0] },
+    { offset: -spacing, alpha: 0.56, color: darkColor },
+    { offset: 0, alpha: 0.92, color: lightColors[1] },
+    { offset: spacing, alpha: 0.56, color: darkColor },
+    { offset: spacing * 2, alpha: 0.92, color: lightColors[2] },
   ];
-  for (const lane of lanes) drawBusLane(ctx, start, end, color, laneWidth, lane.offset, lane.alpha);
+  for (const lane of lanes) drawBusLane(ctx, start, end, lane.color, laneWidth, lane.offset, lane.alpha);
 }
 
 function roundedRect(ctx, x, y, width, height, radius) {
@@ -296,7 +368,15 @@ function patchCanvas(canvas) {
       for (const link of busLinks) {
         const { origin, target, originSlot, targetSlot } = linkNodes(graph, link);
         if (!origin || !target) continue;
-        drawBusCable(ctx, pointForOutput(origin, originSlot), pointForInput(target, targetSlot), busColor(link), baseWidth);
+        const darkColor = busColor(link);
+        drawBusCable(
+          ctx,
+          pointForOutput(origin, originSlot),
+          pointForInput(target, targetSlot),
+          darkColor,
+          lightLaneColors(graph, link),
+          baseWidth
+        );
       }
     } catch (error) {
       console.warn("[Terry Wire Bus] Failed to draw bus cable", error);
