@@ -237,9 +237,12 @@ function makeSection(node, key) {
 
   if (key === "divider") {
     element.style.height = "32px";
-    element.style.margin = "0 10px";
-    element.style.borderTop = "1px solid color-mix(in srgb, var(--fg-color, #aaa) 24%, transparent)";
-    element.style.transform = "translateY(16px)";
+    element.style.margin = "0";
+    // Nodes 2.0 positions DOM widgets from the value column, so a DOM border
+    // starts too far to the right. The divider is drawn in node coordinates
+    // from onDrawForeground instead; this element only reserves vertical space.
+    element.style.borderTop = "none";
+    element.style.transform = "none";
   } else {
     element.style.height = "30px";
     element.style.padding = "8px 10px 3px";
@@ -260,6 +263,33 @@ function makeSection(node, key) {
   };
 
   return node.__terrySaveSections[key] = { element, widget };
+}
+
+function dividerY(node) {
+  const divider = node.__terrySaveSections?.divider?.widget;
+  if (!divider || divider.hidden) return null;
+  for (const value of [divider.last_y, divider.y, divider.pos?.[1]]) {
+    const y = Number(value);
+    if (Number.isFinite(y) && y >= 0) return y + 18;
+  }
+  return null;
+}
+
+function drawDivider(node, ctx) {
+  const y = dividerY(node);
+  if (y == null || !ctx) return;
+
+  const width = Number(node.size?.[0]) || 0;
+  if (width <= 80) return;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(50, y + 0.5);
+  ctx.lineTo(width - 12, y + 0.5);
+  ctx.strokeStyle = "rgba(180, 180, 180, 0.28)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function updateSections(node, type) {
@@ -401,6 +431,13 @@ app.registerExtension({
         info.properties ||= {};
         info.properties[VALUES_PROP] = namedValues(this);
       }
+      return result;
+    };
+
+    const drawForeground = nodeType.prototype.onDrawForeground;
+    nodeType.prototype.onDrawForeground = function(ctx) {
+      const result = drawForeground?.apply(this, arguments);
+      drawDivider(this, ctx);
       return result;
     };
   },
