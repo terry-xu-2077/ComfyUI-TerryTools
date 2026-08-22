@@ -11,9 +11,11 @@ function installStyle() {
 .terry-file-save-card.is-file{border-color:rgba(255,255,255,.11);background:rgba(0,0,0,.10)}
 .terry-file-save-row{width:100%;max-width:100%;min-width:0;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,36%) minmax(0,1fr);align-items:center;gap:10px;min-height:30px}
 .terry-file-save-label{min-width:0;max-width:100%;font-size:11px;line-height:1.25;opacity:.72;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.terry-file-save-control{display:block;width:100%;max-width:100%;min-width:0;height:30px;box-sizing:border-box;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.055);color:inherit;font:11px Inter,system-ui,sans-serif;outline:none;padding:0 8px}
+.terry-file-save-control{display:block;width:100%;max-width:100%;min-width:0;height:30px;box-sizing:border-box;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:#303236;color:#e5e7eb;font:11px Inter,system-ui,sans-serif;outline:none;padding:0 8px;color-scheme:dark}
 .terry-file-save-control:focus{border-color:rgba(255,255,255,.25);box-shadow:0 0 0 1px rgba(255,255,255,.05)}
 .terry-file-save-control[type=number]{text-align:left}
+.terry-file-save-control:disabled{opacity:.58;cursor:not-allowed;background:rgba(255,255,255,.035)}
+.terry-file-save-control option{background:#25272b!important;color:#e8e8e8!important}
 .terry-file-save-check-wrap{width:100%;max-width:100%;min-width:0;height:30px;display:flex;align-items:center;justify-content:flex-end;box-sizing:border-box}
 .terry-file-save-check{appearance:none;flex:0 0 auto;width:42px;height:24px;border-radius:999px;background:rgba(255,255,255,.13);position:relative;cursor:pointer;transition:background .12s ease}
 .terry-file-save-check:after{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:rgba(10,10,10,.92);transition:transform .12s ease,background .12s ease}
@@ -77,6 +79,11 @@ function connectedType(node, supported) {
   const input = node?.inputs?.find((x) => x?.name === "data");
   if (!input || input.link == null) return null;
   return resolveOriginType(node.graph || app.graph, input.link, supported);
+}
+
+function hasInputLink(node, name) {
+  const input = node?.inputs?.find((x) => x?.name === name || x?.widget?.name === name);
+  return input?.link != null;
 }
 
 function localeIsZh() {
@@ -205,13 +212,19 @@ export function installFileSavePanel(node, config) {
       if (type === "STRING" && getWidget(node,"text_extension")?.value !== "custom") visible.delete("text_custom_extension");
       if (config.sequence && getWidget(node,"append_sequence")?.value !== true) { visible.delete("sequence_start"); visible.delete("sequence_padding"); }
 
+      const externalFilename = hasInputLink(node, "filename_input");
       let mediaCount = 0;
       for (const [name,item] of controls) {
         const isMedia = Object.values(config.typeWidgets).some((arr) => arr.includes(name));
         const show = isMedia ? visible.has(name) : (name !== "sequence_start" && name !== "sequence_padding") || getWidget(node,"append_sequence")?.value === true;
         item.row.style.display = show ? "grid" : "none";
         if (isMedia && show) mediaCount++;
+        item.control.disabled = false;
         item.sync();
+        if (name === "filename" && externalFilename) {
+          item.control.disabled = true;
+          if (item.control.type !== "checkbox") item.control.value = localeIsZh() ? "由外部输入" : "From external input";
+        }
       }
       mediaCard.style.display = mediaCount ? "flex" : "none";
       root.style.width = "100%";
