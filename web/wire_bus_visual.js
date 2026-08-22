@@ -310,11 +310,18 @@ function refreshVuePortStyle() {
 
   const packs = [];
   const unpacks = [];
+  const packRows = [];
+  const unpackRows = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
-    if (nodeType(node) === PACK_TYPE) packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
-    else unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
+    if (nodeType(node) === PACK_TYPE) {
+      packRows.push(`${root} .lg-slot--output`);
+      packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
+    } else {
+      unpackRows.push(`${root} .lg-slot--input`);
+      unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
+    }
   }
 
   const selectors = [...packs, ...unpacks];
@@ -324,6 +331,20 @@ function refreshVuePortStyle() {
   ];
 
   style.textContent = selectors.length ? `
+${packRows.join(",\n")}{
+  position:absolute !important;
+  right:0;
+  top:50% !important;
+  transform:translateY(-50%);
+  z-index:4;
+}
+${unpackRows.join(",\n")}{
+  position:absolute !important;
+  left:0;
+  top:50% !important;
+  transform:translateY(-50%);
+  z-index:4;
+}
 ${selectors.join(",\n")}{
   position:relative;
   overflow:visible;
@@ -365,6 +386,26 @@ function patchBusNode(node) {
   queueVueStyleRefresh();
   if (node.__terryBusCapsulePatched) return;
   node.__terryBusCapsulePatched = true;
+
+  // The fixed BUS connection sits on the vertical centerline. Dynamic lane
+  // inputs/outputs keep their native positions and ordering.
+  const originalInputPos = node.getInputPos;
+  const originalOutputPos = node.getOutputPos;
+  node.getInputPos = function (slot) {
+    if (nodeType(this) === UNPACK_TYPE && Number(slot) === 0) {
+      return [Number(this.pos?.[0] || 0), Number(this.pos?.[1] || 0) + Number(this.size?.[1] || 0) * 0.5];
+    }
+    return originalInputPos?.apply?.(this, arguments);
+  };
+  node.getOutputPos = function (slot) {
+    if (nodeType(this) === PACK_TYPE && Number(slot) === 0) {
+      return [
+        Number(this.pos?.[0] || 0) + Number(this.size?.[0] || 0),
+        Number(this.pos?.[1] || 0) + Number(this.size?.[1] || 0) * 0.5,
+      ];
+    }
+    return originalOutputPos?.apply?.(this, arguments);
+  };
 
   const originalForeground = node.onDrawForeground;
   node.onDrawForeground = function (ctx) {

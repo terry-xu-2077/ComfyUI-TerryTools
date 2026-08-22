@@ -8,6 +8,10 @@ const EMPTY_TYPE = "*";
 const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
 const LANE_FIELD = "terry_lane_id";
+const COMPACT_NODE_WIDTH = 160;
+const COMPACT_NODE_MIN_HEIGHT = 240;
+const COMPACT_NODE_HEADER_HEIGHT = 140;
+const COMPACT_NODE_LANE_HEIGHT = 38;
 
 let laneSequence = 0;
 
@@ -409,6 +413,17 @@ function emptyLaneLabel(name, index) {
   return isChineseLocale() ? `[空] ${fallback}` : `[Empty] ${fallback}`;
 }
 
+function compactBusNodeHeight(laneCount) {
+  return Math.max(
+    COMPACT_NODE_MIN_HEIGHT,
+    COMPACT_NODE_HEADER_HEIGHT + Math.max(1, Number(laneCount) || 0) * COMPACT_NODE_LANE_HEIGHT
+  );
+}
+
+function resizeCompactBusNode(node, laneCount) {
+  node?.setSize?.([COMPACT_NODE_WIDTH, compactBusNodeHeight(laneCount)]);
+}
+
 function syncUnpack(unpack, force = false) {
   localizeFixedPorts(unpack);
   const pack = findPackFromUnpack(unpack);
@@ -452,10 +467,7 @@ function syncUnpack(unpack, force = false) {
     (output) => output?.[LANE_FIELD] || ""
   );
 
-  unpack.setSize?.([
-    Math.max(190, unpack.size?.[0] || 190),
-    Math.max(80, unpack.computeSize?.()?.[1] || 80),
-  ]);
+  resizeCompactBusNode(unpack, entries.length);
   unpack.graph?.setDirtyCanvas?.(true, true);
 }
 
@@ -505,10 +517,7 @@ function refreshPackSlots(pack) {
     last.type = EMPTY_TYPE;
   }
 
-  pack.setSize?.([
-    Math.max(190, pack.size?.[0] || 190),
-    Math.max(80, pack.computeSize?.()?.[1] || 80),
-  ]);
+  resizeCompactBusNode(pack, entries.length);
   queueMicrotask(syncAllUnpacks);
   pack.graph?.setDirtyCanvas?.(true, true);
 }
