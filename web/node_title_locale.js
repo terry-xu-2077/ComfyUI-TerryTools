@@ -5,7 +5,7 @@ const NODE_TITLES = {
     en: "Terry Enhanced File Save",
     zh: "Terry 增强文件保存",
   },
-  TerryFileSaveNoSequence: {
+  TerryFileSave: {
     en: "Terry File Save",
     zh: "Terry 文件保存",
   },
