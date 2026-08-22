@@ -17,13 +17,7 @@ const TYPE_WIDGETS = {
   STRING: ["text_extension", "text_custom_extension"],
 };
 const ALL_TYPE_WIDGETS = Object.values(TYPE_WIDGETS).flat();
-const FILE_WIDGETS = [
-  "filename_template",
-  "date_format",
-  "append_sequence",
-  "sequence_start",
-  "sequence_padding",
-];
+const FILE_WIDGETS = ["filename_template","date_format","append_sequence","sequence_start","sequence_padding"];
 const VALUE_WIDGETS = [...ALL_TYPE_WIDGETS, ...FILE_WIDGETS];
 
 function getWidget(node, name) {
@@ -61,59 +55,33 @@ function repairCorruptedValues(node) {
   const filename = getWidget(node, "filename_template");
   const date = getWidget(node, "date_format");
   const rawDate = String(date?.value ?? "");
-
   if (date && !DATE_FORMAT_VALUES.has(rawDate)) {
     const currentFilename = String(filename?.value ?? "").trim();
     const filenameLooksInvalid = !currentFilename || ["auto", "h264", "re-encode"].includes(currentFilename);
     const misplacedLooksLikeFilename = rawDate.includes("%date%") || rawDate.includes("/") || rawDate.includes("\\");
-    if (filename && filenameLooksInvalid && misplacedLooksLikeFilename) {
-      setWidgetValue(node, "filename_template", rawDate);
-    }
+    if (filename && filenameLooksInvalid && misplacedLooksLikeFilename) setWidgetValue(node, "filename_template", rawDate);
     setWidgetValue(node, "date_format", DEFAULT_DATE_FORMAT);
   }
-
   const filenameValue = String(getWidget(node, "filename_template")?.value ?? "").trim();
-  if (!filenameValue || ["auto", "h264", "re-encode"].includes(filenameValue)) {
-    setWidgetValue(node, "filename_template", "ComfyUI_%date%");
-  }
-
+  if (!filenameValue || ["auto", "h264", "re-encode"].includes(filenameValue)) setWidgetValue(node, "filename_template", "ComfyUI_%date%");
   const videoFormat = getWidget(node, "video_format");
-  if (videoFormat && !String(videoFormat.value ?? "").trim()) {
-    setWidgetValue(node, "video_format", "auto");
-  }
-
+  if (videoFormat && !String(videoFormat.value ?? "").trim()) setWidgetValue(node, "video_format", "auto");
   const videoCodec = getWidget(node, "video_codec");
-  if (videoCodec && !["auto", "h264"].includes(String(videoCodec.value ?? ""))) {
-    setWidgetValue(node, "video_codec", "auto");
-  }
-
+  if (videoCodec && !["auto", "h264"].includes(String(videoCodec.value ?? ""))) setWidgetValue(node, "video_codec", "auto");
   const videoEncoding = getWidget(node, "video_encoding");
-  if (videoEncoding && !["auto", "re-encode"].includes(String(videoEncoding.value ?? ""))) {
-    setWidgetValue(node, "video_encoding", "auto");
-  }
-
+  if (videoEncoding && !["auto", "re-encode"].includes(String(videoEncoding.value ?? ""))) setWidgetValue(node, "video_encoding", "auto");
   const append = getWidget(node, "append_sequence");
-  if (append && typeof append.value !== "boolean") {
-    setWidgetValue(node, "append_sequence", false);
-  }
-
+  if (append && typeof append.value !== "boolean") setWidgetValue(node, "append_sequence", false);
   const start = getWidget(node, "sequence_start");
-  if (start && !Number.isFinite(Number(start.value))) {
-    setWidgetValue(node, "sequence_start", 1);
-  }
-
+  if (start && !Number.isFinite(Number(start.value))) setWidgetValue(node, "sequence_start", 1);
   const padding = getWidget(node, "sequence_padding");
-  if (padding && (!Number.isFinite(Number(padding.value)) || Number(padding.value) < 1)) {
-    setWidgetValue(node, "sequence_padding", 5);
-  }
+  if (padding && (!Number.isFinite(Number(padding.value)) || Number(padding.value) < 1)) setWidgetValue(node, "sequence_padding", 5);
 }
 
 function installHideAdapter(widget) {
   if (!widget || widget.__terryHideAdapter) return;
   widget.__terryHideAdapter = true;
-  const original = typeof widget.computeSize === "function"
-    ? widget.computeSize.bind(widget)
-    : null;
+  const original = typeof widget.computeSize === "function" ? widget.computeSize.bind(widget) : null;
   widget.computeSize = function(width) {
     if (this.hidden) return [0, -4];
     return original?.(width) || [width ?? 0, 20];
@@ -145,27 +113,28 @@ function moveWidgetBefore(node, widget, anchorNames) {
 }
 
 function makeDivider(node) {
-  if (node.__terrySaveDivider || typeof node.addDOMWidget !== "function") {
-    return node.__terrySaveDivider;
-  }
+  if (node.__terrySaveDivider || typeof node.addDOMWidget !== "function") return node.__terrySaveDivider;
 
   const element = document.createElement("div");
-  element.style.boxSizing = "border-box";
-  element.style.width = "100%";
-  element.style.height = "28px";
-  element.style.position = "relative";
-  element.style.pointerEvents = "none";
-  element.style.overflow = "visible";
+  Object.assign(element.style, {
+    boxSizing: "border-box",
+    width: "100%",
+    height: "28px",
+    position: "relative",
+    pointerEvents: "none",
+    overflow: "visible",
+  });
 
   const line = document.createElement("div");
   Object.assign(line.style, {
     position: "absolute",
     top: "13px",
-    left: "-220px",
-    width: "calc(100% + 220px)",
+    left: "0",
+    width: "100%",
     height: "1px",
     background: "rgba(180,180,180,.28)",
     pointerEvents: "none",
+    display: "none",
   });
   element.appendChild(line);
 
@@ -179,33 +148,65 @@ function makeDivider(node) {
     return [width ?? 0, 28];
   };
 
-  node.__terrySaveDivider = { element, widget };
+  node.__terrySaveDivider = { element, line, widget };
   return node.__terrySaveDivider;
+}
+
+function alignNodes2Divider(node) {
+  const divider = node.__terrySaveDivider;
+  if (!divider || divider.widget.hidden) return;
+  requestAnimationFrame(() => {
+    const element = divider.element;
+    const root = element.closest?.("[data-node-id]");
+    if (!root) {
+      divider.line.style.display = "none";
+      return;
+    }
+    const rootRect = root.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const inset = 12;
+    divider.line.style.left = `${rootRect.left + inset - elementRect.left}px`;
+    divider.line.style.width = `${Math.max(0, rootRect.width - inset * 2)}px`;
+    divider.line.style.display = "block";
+  });
+}
+
+function dividerY(node) {
+  const widget = node.__terrySaveDivider?.widget;
+  if (!widget || widget.hidden) return null;
+  for (const value of [widget.last_y, widget.y, widget.pos?.[1]]) {
+    const y = Number(value);
+    if (Number.isFinite(y) && y >= 0) return y + 14;
+  }
+  return null;
+}
+
+function drawClassicDivider(node, ctx) {
+  const y = dividerY(node);
+  if (y == null || !ctx) return;
+  const width = Number(node.size?.[0]) || 0;
+  if (width <= 40) return;
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(12, y + 0.5);
+  ctx.lineTo(width - 12, y + 0.5);
+  ctx.strokeStyle = "rgba(180,180,180,.28)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
 }
 
 function getGraphLink(graph, linkId) {
   if (!graph || linkId == null) return null;
-  return graph.links?.[linkId]
-    || graph._links?.get?.(linkId)
-    || graph.links?.[String(linkId)]
-    || null;
+  return graph.links?.[linkId] || graph._links?.get?.(linkId) || graph.links?.[String(linkId)] || null;
 }
-
 function normalizeType(type) {
   const value = String(type || "").toUpperCase();
   return value === "TEXT" ? "STRING" : value;
 }
-
 function nodeType(node) {
-  return String(
-    node?.type ||
-    node?.constructor?.type ||
-    node?.comfyClass ||
-    node?.constructor?.comfyClass ||
-    ""
-  ).toLowerCase();
+  return String(node?.type || node?.constructor?.type || node?.comfyClass || node?.constructor?.comfyClass || "").toLowerCase();
 }
-
 function resolveOriginType(graph, linkId, seen = new Set()) {
   if (linkId == null || seen.has(linkId)) return null;
   seen.add(linkId);
@@ -223,22 +224,15 @@ function resolveOriginType(graph, linkId, seen = new Set()) {
   type = normalizeType(output?.type);
   return TYPE_WIDGETS[type] ? type : null;
 }
-
 function connectedType(node) {
   const input = node.inputs?.find((item) => item?.name === "data");
   if (!input || input.link == null) return null;
   return resolveOriginType(node.graph || app.graph, input.link);
 }
-
 function resizeToContent(node) {
   try {
     const measured = node.computeSize?.();
-    if (measured) {
-      node.setSize?.([
-        Math.max(node.size?.[0] || 0, measured[0] || 0),
-        measured[1],
-      ]);
-    }
+    if (measured) node.setSize?.([Math.max(node.size?.[0] || 0, measured[0] || 0), measured[1]]);
   } catch {}
   node.setDirtyCanvas?.(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
@@ -246,32 +240,22 @@ function resizeToContent(node) {
 
 function applyDynamicPanel(node) {
   repairCorruptedValues(node);
-
   for (const name of ALL_TYPE_WIDGETS) setWidgetHidden(node, name, true);
-
   const type = connectedType(node);
-  if (type) {
-    for (const name of TYPE_WIDGETS[type]) setWidgetHidden(node, name, false);
-  }
+  if (type) for (const name of TYPE_WIDGETS[type]) setWidgetHidden(node, name, false);
 
   const useSequence = getWidget(node, "append_sequence")?.value === true;
   setWidgetHidden(node, "sequence_start", !useSequence);
   setWidgetHidden(node, "sequence_padding", !useSequence);
 
-  if (type === "AUDIO") {
-    setWidgetHidden(node, "audio_quality", getWidget(node, "audio_format")?.value === "flac");
-  }
-
+  if (type === "AUDIO") setWidgetHidden(node, "audio_quality", getWidget(node, "audio_format")?.value === "flac");
   if (type === "VIDEO") {
     const codec = getWidget(node, "video_codec")?.value;
     const encoding = getWidget(node, "video_encoding")?.value;
     setWidgetHidden(node, "video_encoding", codec !== "h264");
     setWidgetHidden(node, "video_crf", !(codec === "h264" && encoding === "re-encode"));
   }
-
-  if (type === "STRING") {
-    setWidgetHidden(node, "text_custom_extension", getWidget(node, "text_extension")?.value !== "custom");
-  }
+  if (type === "STRING") setWidgetHidden(node, "text_custom_extension", getWidget(node, "text_extension")?.value !== "custom");
 
   const divider = makeDivider(node);
   if (divider) {
@@ -280,6 +264,7 @@ function applyDynamicPanel(node) {
     divider.widget.options.hidden = !type;
     divider.element.style.display = type ? "block" : "none";
     moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
+    if (type) alignNodes2Divider(node);
   }
 
   resizeToContent(node);
@@ -296,25 +281,15 @@ function hookWidget(node, name) {
     return result;
   };
 }
-
 function schedulePanelRefresh(node) {
   queueMicrotask(() => applyDynamicPanel(node));
   requestAnimationFrame(() => applyDynamicPanel(node));
   setTimeout(() => applyDynamicPanel(node), 50);
   setTimeout(() => applyDynamicPanel(node), 180);
 }
-
 function initNode(node) {
   for (const widget of node.widgets || []) installHideAdapter(widget);
-  for (const name of [
-    "append_sequence",
-    "audio_format",
-    "video_codec",
-    "video_encoding",
-    "text_extension",
-  ]) {
-    hookWidget(node, name);
-  }
+  for (const name of ["append_sequence","audio_format","video_codec","video_encoding","text_extension"]) hookWidget(node, name);
   makeDivider(node);
   applyDynamicPanel(node);
   schedulePanelRefresh(node);
@@ -324,21 +299,18 @@ app.registerExtension({
   name: "TerryTools.EnhancedFileSave.DynamicPanel",
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_ID) return;
-
     const created = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function() {
       const result = created?.apply(this, arguments);
       initNode(this);
       return result;
     };
-
     const connections = nodeType.prototype.onConnectionsChange;
     nodeType.prototype.onConnectionsChange = function() {
       const result = connections?.apply(this, arguments);
       schedulePanelRefresh(this);
       return result;
     };
-
     const configure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function(info) {
       const named = info?.properties?.[VALUES_PROP];
@@ -349,7 +321,6 @@ app.registerExtension({
       });
       return result;
     };
-
     const serialize = nodeType.prototype.onSerialize;
     nodeType.prototype.onSerialize = function(info) {
       repairCorruptedValues(this);
@@ -360,17 +331,17 @@ app.registerExtension({
       }
       return result;
     };
+    const drawForeground = nodeType.prototype.onDrawForeground;
+    nodeType.prototype.onDrawForeground = function(ctx) {
+      const result = drawForeground?.apply(this, arguments);
+      drawClassicDivider(this, ctx);
+      return result;
+    };
   },
-
   nodeCreated(node) {
-    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) {
-      queueMicrotask(() => initNode(node));
-    }
+    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node));
   },
-
   loadedGraphNode(node) {
-    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) {
-      queueMicrotask(() => initNode(node));
-    }
+    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node));
   },
 });
