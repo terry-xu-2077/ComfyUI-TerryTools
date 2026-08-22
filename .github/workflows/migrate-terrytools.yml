@@ -1,0 +1,63 @@
+name: Migrate TerryTools
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/migrate-terrytools.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout new repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Clone TerryToolbox source
+        run: |
+          git clone --depth 1 --branch main https://github.com/terry-xu-2077/ComfyUI-TerryToolbox.git "$RUNNER_TEMP/terry-source"
+
+      - name: Copy source into TerryTools
+        run: |
+          rsync -a --delete --exclude='.git/' "$RUNNER_TEMP/terry-source/" ./
+
+      - name: Rename TerryToolbox branding to TerryTools
+        shell: python
+        run: |
+          from pathlib import Path
+
+          replacements = [
+              ("ComfyUI-TerryToolbox", "ComfyUI-TerryTools"),
+              ("comfyui-terry-toolbox", "comfyui-terry-tools"),
+              ("Terry Toolbox", "TerryTools"),
+              ("TerryToolbox", "TerryTools"),
+              ("terry-toolbox", "terry-tools"),
+              ("Terry's personal ComfyUI toolbox nodes.", "Terry's personal ComfyUI tools."),
+              ("whole toolbox remains one installable package", "whole toolset remains one installable package"),
+          ]
+
+          for path in Path('.').rglob('*'):
+              if not path.is_file() or '.git' in path.parts:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              updated = text
+              for old, new in replacements:
+                  updated = updated.replace(old, new)
+              if updated != text:
+                  path.write_text(updated, encoding='utf-8')
+
+      - name: Commit migrated TerryTools tree
+        run: |
+          git config user.name "TerryTools Migration"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Migrate ComfyUI-TerryToolbox to TerryTools"
+          git push origin main
