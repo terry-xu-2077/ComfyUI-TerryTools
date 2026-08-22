@@ -140,45 +140,8 @@ class EnhancedFileSave(io.ComfyNode):
                     display_name="内容",
                     tooltip="支持 VIDEO / STRING / IMAGE / AUDIO。",
                 ),
-                io.String.Input(
-                    "filename_template",
-                    display_name="文件名",
-                    default="ComfyUI_%date%",
-                    tooltip=(
-                        "可包含子文件夹，例如 project/shot_%date%。"
-                        "%date% 会按日期格式下拉选项替换。若填写扩展名，将自动移除，"
-                        "真实扩展名由内容格式决定。"
-                    ),
-                ),
-                io.Combo.Input(
-                    "date_format",
-                    display_name="日期格式",
-                    options=list(DATE_FORMATS.keys()),
-                    default="YYYYMMDD_HHmmss",
-                    tooltip="文件名中的 %date% 会按所选格式替换；选择 none 时不加入日期。",
-                ),
-                io.Boolean.Input(
-                    "append_sequence",
-                    display_name="尾部添加序列号",
-                    default=False,
-                    tooltip="关闭时不自动补 ComfyUI 计数器；目标已存在时直接覆盖。",
-                ),
-                io.Int.Input(
-                    "sequence_start",
-                    display_name="序列号起始值",
-                    default=1,
-                    min=0,
-                    max=999999999,
-                    step=1,
-                ),
-                io.Int.Input(
-                    "sequence_padding",
-                    display_name="序列号位数",
-                    default=5,
-                    min=1,
-                    max=12,
-                    step=1,
-                ),
+
+                # ---------- IMAGE ----------
                 io.Int.Input(
                     "image_compress_level",
                     display_name="PNG 压缩等级",
@@ -188,6 +151,8 @@ class EnhancedFileSave(io.ComfyNode):
                     step=1,
                     tooltip="直接使用 ComfyUI ImageSaveHelper。",
                 ),
+
+                # ---------- AUDIO ----------
                 io.Combo.Input(
                     "audio_format",
                     display_name="音频格式",
@@ -200,6 +165,8 @@ class EnhancedFileSave(io.ComfyNode):
                     options=["V0", "64k", "96k", "128k", "192k", "320k"],
                     default="128k",
                 ),
+
+                # ---------- VIDEO ----------
                 io.Combo.Input(
                     "video_format",
                     display_name="视频容器",
@@ -228,6 +195,8 @@ class EnhancedFileSave(io.ComfyNode):
                     max=51.0,
                     step=1.0,
                 ),
+
+                # ---------- TEXT ----------
                 io.Combo.Input(
                     "text_extension",
                     display_name="文本后缀",
@@ -239,6 +208,47 @@ class EnhancedFileSave(io.ComfyNode):
                     display_name="自定义文本后缀",
                     default="txt",
                 ),
+
+                # ---------- Filename ----------
+                io.String.Input(
+                    "filename_template",
+                    display_name="文件名",
+                    default="ComfyUI_%date%",
+                    tooltip=(
+                        "可包含子文件夹，例如 project/shot_%date%。"
+                        "%date% 会按日期格式下拉选项替换。若填写扩展名，将自动移除，"
+                        "真实扩展名由内容格式决定。"
+                    ),
+                ),
+                io.Combo.Input(
+                    "date_format",
+                    display_name="日期格式",
+                    options=list(DATE_FORMATS.keys()),
+                    default="YYYYMMDDHHmmss",
+                    tooltip="文件名中的 %date% 会按所选格式替换；选择 none 时不加入日期。",
+                ),
+                io.Boolean.Input(
+                    "append_sequence",
+                    display_name="尾部添加序列号",
+                    default=False,
+                    tooltip="关闭时不自动补 ComfyUI 计数器；目标已存在时直接覆盖。",
+                ),
+                io.Int.Input(
+                    "sequence_start",
+                    display_name="序列号起始值",
+                    default=1,
+                    min=0,
+                    max=999999999,
+                    step=1,
+                ),
+                io.Int.Input(
+                    "sequence_padding",
+                    display_name="序列号位数",
+                    default=5,
+                    min=1,
+                    max=12,
+                    step=1,
+                ),
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
             outputs=[io.AnyType.Output("data", display_name="原内容")],
@@ -248,11 +258,6 @@ class EnhancedFileSave(io.ComfyNode):
     def execute(
         cls,
         data,
-        filename_template,
-        date_format,
-        append_sequence,
-        sequence_start,
-        sequence_padding,
         image_compress_level,
         audio_format,
         audio_quality,
@@ -262,6 +267,11 @@ class EnhancedFileSave(io.ComfyNode):
         video_crf,
         text_extension,
         text_custom_extension,
+        filename_template,
+        date_format,
+        append_sequence,
+        sequence_start,
+        sequence_padding,
     ) -> io.NodeOutput:
         kind = _detect_type(data)
         stem = _build_rel_stem(filename_template, date_format)
