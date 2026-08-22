@@ -116,20 +116,8 @@ function makeDivider(node) {
     height: "28px",
     position: "relative",
     pointerEvents: "none",
-    overflow: "visible",
+    overflow: "hidden",
   });
-
-  const line = document.createElement("div");
-  Object.assign(line.style, {
-    position: "absolute",
-    top: "13px",
-    left: "calc(-100% + 12px)",
-    width: "calc(200% - 24px)",
-    height: "1px",
-    background: "rgba(180,180,180,.28)",
-    pointerEvents: "none",
-  });
-  element.appendChild(line);
 
   const widget = node.addDOMWidget("terry_save_divider", "div", element, {
     serialize: false,
@@ -141,8 +129,53 @@ function makeDivider(node) {
     return [width ?? 0, 28];
   };
 
-  node.__terrySaveDivider = { element, line, widget };
+  node.__terrySaveDivider = { element, widget, vueRow: null, vueLine: null };
   return node.__terrySaveDivider;
+}
+
+function syncNodes2Divider(node) {
+  const divider = node.__terrySaveDivider;
+  if (!divider) return;
+
+  requestAnimationFrame(() => {
+    const row = divider.element.closest?.(".lg-node-widget");
+
+    // Classic mode does not have the Vue row wrapper. Remove any DOM line so
+    // only the Canvas separator is visible there.
+    if (!row) {
+      divider.vueLine?.remove?.();
+      divider.vueLine = null;
+      divider.vueRow = null;
+      return;
+    }
+
+    if (divider.vueRow !== row) {
+      divider.vueLine?.remove?.();
+      divider.vueRow = row;
+      divider.vueLine = null;
+    }
+
+    if (!divider.vueLine) {
+      const line = document.createElement("div");
+      line.className = "terry-save-nodes2-divider-line";
+      Object.assign(line.style, {
+        position: "absolute",
+        left: "12px",
+        right: "12px",
+        top: "50%",
+        height: "1px",
+        background: "rgba(180,180,180,.28)",
+        transform: "translateY(-0.5px)",
+        pointerEvents: "none",
+        zIndex: "1",
+      });
+      if (getComputedStyle(row).position === "static") row.style.position = "relative";
+      row.appendChild(line);
+      divider.vueLine = line;
+    }
+
+    divider.vueLine.style.display = divider.widget.hidden ? "none" : "block";
+  });
 }
 
 function dividerY(node) {
@@ -237,6 +270,7 @@ function applyDynamicPanel(node) {
     divider.widget.options.hidden = !type;
     divider.element.style.display = type ? "block" : "none";
     moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
+    syncNodes2Divider(node);
   }
 
   resizeToContent(node);
