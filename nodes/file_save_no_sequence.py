@@ -10,11 +10,12 @@ class FileSaveNoSequence(EnhancedFileSave):
     def define_schema(cls):
         return io.Schema(
             node_id="TerryFileSaveNoSequence",
-            display_name="Terry 文件保存（无序号）",
+            display_name="Terry 文件保存",
             category="TerryTools/Save",
             description=(
-                "按输入的精确文件名保存 VIDEO / STRING / IMAGE / AUDIO，不自动添加日期或序列号。"
-                "如果目标文件已存在则直接覆盖。日期等命名内容可由上游字符串节点生成后接入文件名。"
+                "按输入的精确文件名保存 VIDEO / STRING / IMAGE / AUDIO。"
+                "可选择在文件名尾部添加序列号；关闭时目标文件已存在则直接覆盖。"
+                "日期等命名内容可由上游字符串节点生成后接入文件名。"
             ),
             is_output_node=True,
             inputs=[
@@ -86,8 +87,14 @@ class FileSaveNoSequence(EnhancedFileSave):
                     default="ComfyUI",
                     tooltip=(
                         "支持子文件夹，例如 project/shot_01。无需填写扩展名；"
-                        "若填写扩展名会自动移除，真实扩展名由内容格式决定。目标已存在时覆盖。"
+                        "若填写扩展名会自动移除，真实扩展名由内容格式决定。"
                     ),
+                ),
+                io.Boolean.Input(
+                    "append_sequence",
+                    display_name="尾部添加序号",
+                    default=True,
+                    tooltip="开启时在文件名尾部添加序号；关闭时同名文件直接覆盖。",
                 ),
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
@@ -112,6 +119,7 @@ class FileSaveNoSequence(EnhancedFileSave):
         text_extension,
         text_custom_extension,
         filename,
+        append_sequence,
     ) -> io.NodeOutput:
         return super().execute(
             data=data,
@@ -126,7 +134,7 @@ class FileSaveNoSequence(EnhancedFileSave):
             text_custom_extension=text_custom_extension,
             filename_template=filename,
             date_format="none",
-            append_sequence=False,
+            append_sequence=append_sequence,
             sequence_start=1,
-            sequence_padding=1,
+            sequence_padding=5,
         )
