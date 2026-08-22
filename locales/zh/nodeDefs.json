@@ -1,15 +1,11 @@
 {
   "EnhancedFileSave": {
     "display_name": "Terry 增强文件保存",
-    "description": "一个输入端接收 VIDEO / STRING / IMAGE / AUDIO，按真实输入类型自动保存，并提供精确文件名、%date% 时间戳和可选序列号。",
+    "description": "一个输入端接收 VIDEO / STRING / IMAGE / AUDIO，按真实输入类型自动保存，并提供精确文件名、可格式化 %date% 日期和可选序列号。",
     "inputs": {
       "data": {"name": "内容", "tooltip": "支持 VIDEO / STRING / IMAGE / AUDIO。"},
-      "filename_template": {"name": "文件名", "tooltip": "可包含子文件夹，例如 project/shot_%date%。%date% 会按时间戳选项替换。"},
-      "use_timestamp": {"name": "启用 %date% 时间戳"},
-      "ts_year": {"name": "时间戳：年份"},
-      "ts_date": {"name": "时间戳：日期"},
-      "ts_hour": {"name": "时间戳：时"},
-      "ts_minute_second": {"name": "时间戳：分秒"},
+      "filename_template": {"name": "文件名", "tooltip": "可包含子文件夹，例如 project/shot_%date%。%date% 会按日期格式替换。"},
+      "date_format": {"name": "日期格式", "tooltip": "文件名中的 %date% 按所选格式替换；选择 none 时不加入日期。"},
       "append_sequence": {"name": "尾部添加序列号", "tooltip": "关闭时不自动补 ComfyUI 计数器；目标已存在时直接覆盖。"},
       "sequence_start": {"name": "序列号起始值"},
       "sequence_padding": {"name": "序列号位数"},
