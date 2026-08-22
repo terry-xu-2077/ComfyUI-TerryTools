@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 
 const NODE_ID = "EnhancedFileSave";
 const VUE_STYLE_ID = "terry-enhanced-file-save-data-port-style";
+const VUE_MARK_CLASS = "terry-enhanced-data-port";
 
 function isTarget(node) {
   return [
@@ -34,7 +35,6 @@ function drawCompactRing(ctx, node, isInput, index) {
   let y = Number(point?.[1]);
   if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-  // getInputPos/getOutputPos are graph-space in the classic renderer.
   const nx = Number(node?.pos?.[0]) || 0;
   const ny = Number(node?.pos?.[1]) || 0;
   const width = Number(node?.size?.[0]) || 0;
@@ -46,8 +46,6 @@ function drawCompactRing(ctx, node, isInput, index) {
 
   ctx.save();
   ctx.beginPath();
-  // Native circle radius is ~4 px. Keep the extra emphasis subtle: only a
-  // thin 1.4 px ring immediately outside it, similar to the wire-bus port.
   ctx.arc(x, y, 5.8, 0, Math.PI * 2);
   ctx.strokeStyle = "rgba(235,235,235,0.72)";
   ctx.lineWidth = 1.4;
@@ -69,6 +67,30 @@ function targetNodes() {
   return (app.graph?._nodes || []).filter(isTarget);
 }
 
+function markVueDataPorts() {
+  for (const node of targetNodes()) {
+    if (node?.id == null) continue;
+    const root = document.querySelector(`[data-node-id="${attrEscape(node.id)}"]`);
+    if (!root) continue;
+
+    for (const el of root.querySelectorAll(`.${VUE_MARK_CLASS}`)) {
+      el.classList.remove(VUE_MARK_CLASS);
+    }
+
+    const inputIndex = node.inputs?.findIndex((slot) => slot?.name === "data") ?? -1;
+    if (inputIndex >= 0) {
+      const inputs = root.querySelectorAll(".lg-slot--input");
+      inputs[inputIndex]?.classList.add(VUE_MARK_CLASS);
+    }
+
+    const outputIndex = node.outputs?.findIndex((slot) => slot?.name === "data") ?? -1;
+    if (outputIndex >= 0) {
+      const outputs = root.querySelectorAll(".lg-slot--output");
+      outputs[outputIndex]?.classList.add(VUE_MARK_CLASS);
+    }
+  }
+}
+
 function refreshVuePortStyle() {
   let style = document.getElementById(VUE_STYLE_ID);
   if (!style) {
@@ -77,30 +99,8 @@ function refreshVuePortStyle() {
     document.head.append(style);
   }
 
-  const selectors = [];
-  const dotSelectors = [];
-
-  for (const node of targetNodes()) {
-    if (node?.id == null) continue;
-    const root = `[data-node-id="${attrEscape(node.id)}"]`;
-
-    const inputIndex = node.inputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-    if (inputIndex >= 0) {
-      const base = `${root} .lg-slot--input:nth-of-type(${inputIndex + 1}) [data-testid="slot-connection-dot"]`;
-      selectors.push(base);
-      dotSelectors.push(`${base} [data-testid="slot-dot"]`);
-    }
-
-    const outputIndex = node.outputs?.findIndex((slot) => slot?.name === "data") ?? -1;
-    if (outputIndex >= 0) {
-      const base = `${root} .lg-slot--output:nth-of-type(${outputIndex + 1}) [data-testid="slot-connection-dot"]`;
-      selectors.push(base);
-      dotSelectors.push(`${base} [data-testid="slot-dot"]`);
-    }
-  }
-
-  style.textContent = selectors.length ? `
-${selectors.join(",\n")}{
+  style.textContent = `
+.${VUE_MARK_CLASS} [data-testid="slot-connection-dot"]{
   position:relative;
   overflow:visible;
   width:12px !important;
@@ -115,12 +115,14 @@ ${selectors.join(",\n")}{
   align-items:center;
   justify-content:center;
 }
-${dotSelectors.join(",\n")}{
+.${VUE_MARK_CLASS} [data-testid="slot-connection-dot"] [data-testid="slot-dot"]{
   position:relative;
   z-index:1;
   flex:none;
 }
-` : "";
+`;
+
+  markVueDataPorts();
 }
 
 let vueStyleQueued = false;
@@ -133,11 +135,16 @@ function queueVueStyleRefresh() {
   });
 }
 
+function scheduleVueRefresh() {
+  queueVueStyleRefresh();
+  setTimeout(queueVueStyleRefresh, 60);
+  setTimeout(queueVueStyleRefresh, 180);
+  setTimeout(queueVueStyleRefresh, 400);
+}
+
 function patchNode(node) {
   if (!isTarget(node)) return;
 
-  // Undo the previous HollowCircle experiment. It renders as a ~20 px port in
-  // Nodes 2.0, which is much larger than requested.
   for (const slot of [
     node.inputs?.find((item) => item?.name === "data"),
     node.outputs?.find((item) => item?.name === "data"),
@@ -145,7 +152,7 @@ function patchNode(node) {
     if (slot?.shape === 7) delete slot.shape;
   }
 
-  queueVueStyleRefresh();
+  scheduleVueRefresh();
   node.setDirtyCanvas?.(true, true);
 
   if (node.__terryCompactDataPortRingPatched) return;
@@ -161,7 +168,7 @@ function patchNode(node) {
 
 function patchExistingNodes() {
   for (const node of targetNodes()) patchNode(node);
-  queueVueStyleRefresh();
+  scheduleVueRefresh();
 }
 
 app.registerExtension({
