@@ -1,6 +1,28 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_ID = "EnhancedFileSave";
+const VALUES_PROP = "terry_enhanced_file_save_values";
+const DEFAULT_DATE_FORMAT = "YYYYMMDDHHmmss";
+const DATE_FORMAT_VALUES = new Set([
+  "none",
+  "YYYYMMDD_HHmmss",
+  "YYYY-MM-DD_HH-mm-ss",
+  "YYYY_MM_DD_HH_mm_ss",
+  "YYYYMMDDHHmmss",
+  "YYYYMMDD_HHmm",
+  "YYYY-MM-DD_HH-mm",
+  "YYYY_MM_DD_HH_mm",
+  "YYYYMMDDHHmm",
+  "YYYYMMDD_HH",
+  "YYYY-MM-DD_HH",
+  "YYYY_MM_DD_HH",
+  "YYYYMMDDHH",
+  "YYYYMMDD",
+  "YYYY-MM-DD",
+  "YYYY_MM_DD",
+  "YYYYMM",
+]);
+
 const TYPE_WIDGETS = {
   IMAGE: ["image_compress_level"],
   AUDIO: ["audio_format", "audio_quality"],
@@ -9,6 +31,7 @@ const TYPE_WIDGETS = {
 };
 const ALL_TYPE_WIDGETS = Object.values(TYPE_WIDGETS).flat();
 const FILE_WIDGETS = ["filename_template", "date_format", "append_sequence", "sequence_start", "sequence_padding"];
+const VALUE_WIDGETS = [...ALL_TYPE_WIDGETS, ...FILE_WIDGETS];
 
 function localeIsZh() {
   try {
@@ -26,6 +49,82 @@ function t(zh, en) {
 
 function getWidget(node, name) {
   return node.widgets?.find((widget) => widget?.name === name) || null;
+}
+
+function setWidgetValue(node, name, value) {
+  const widget = getWidget(node, name);
+  if (!widget) return;
+  widget.value = value;
+  if (widget._state) widget._state.value = value;
+}
+
+function namedValues(node) {
+  const values = {};
+  for (const name of VALUE_WIDGETS) {
+    const widget = getWidget(node, name);
+    if (widget) values[name] = widget.value;
+  }
+  return values;
+}
+
+function restoreNamedValues(node, values) {
+  if (!values || typeof values !== "object") return false;
+  let restored = false;
+  for (const name of VALUE_WIDGETS) {
+    if (!Object.prototype.hasOwnProperty.call(values, name)) continue;
+    setWidgetValue(node, name, values[name]);
+    restored = true;
+  }
+  return restored;
+}
+
+function repairCorruptedValues(node) {
+  const filename = getWidget(node, "filename_template");
+  const date = getWidget(node, "date_format");
+  const rawDate = String(date?.value ?? "");
+  const invalidDate = !!date && !DATE_FORMAT_VALUES.has(rawDate);
+
+  if (invalidDate) {
+    // The schema was reordered once while ComfyUI still restored widgets by array
+    // position. A filename template can therefore land in date_format. Recover it
+    // only when the destination filename is clearly empty/invalid.
+    const currentFilename = String(filename?.value ?? "").trim();
+    const filenameLooksInvalid = !currentFilename || ["auto", "h264", "re-encode"].includes(currentFilename);
+    const misplacedLooksLikeFilename = rawDate.includes("%date%") || rawDate.includes("/") || rawDate.includes("\\");
+    if (filename && filenameLooksInvalid && misplacedLooksLikeFilename) {
+      setWidgetValue(node, "filename_template", rawDate);
+    }
+    setWidgetValue(node, "date_format", DEFAULT_DATE_FORMAT);
+  }
+
+  const filenameValue = String(getWidget(node, "filename_template")?.value ?? "").trim();
+  if (!filenameValue || ["auto", "h264", "re-encode"].includes(filenameValue)) {
+    setWidgetValue(node, "filename_template", "ComfyUI_%date%");
+  }
+
+  const videoFormat = getWidget(node, "video_format");
+  if (videoFormat && !String(videoFormat.value ?? "").trim()) setWidgetValue(node, "video_format", "auto");
+
+  const videoCodec = getWidget(node, "video_codec");
+  if (videoCodec && !["auto", "h264"].includes(String(videoCodec.value ?? ""))) {
+    setWidgetValue(node, "video_codec", "auto");
+  }
+
+  const videoEncoding = getWidget(node, "video_encoding");
+  if (videoEncoding && !["auto", "re-encode"].includes(String(videoEncoding.value ?? ""))) {
+    setWidgetValue(node, "video_encoding", "auto");
+  }
+
+  const append = getWidget(node, "append_sequence");
+  if (append && typeof append.value !== "boolean") setWidgetValue(node, "append_sequence", false);
+
+  const start = getWidget(node, "sequence_start");
+  if (start && !Number.isFinite(Number(start.value))) setWidgetValue(node, "sequence_start", 1);
+
+  const padding = getWidget(node, "sequence_padding");
+  if (padding && (!Number.isFinite(Number(padding.value)) || Number(padding.value) < 1)) {
+    setWidgetValue(node, "sequence_padding", 5);
+  }
 }
 
 function installHideAdapter(widget) {
@@ -154,6 +253,7 @@ function makeSection(node, key) {
     serialize: false,
     hideOnZoom: false,
   });
+  widget.serialize = false;
   widget.computeSize = function(width) {
     if (this.hidden) return [0, -4];
     return [width ?? 0, key === "divider" ? 36 : 32];
@@ -194,6 +294,8 @@ function updateSections(node, type) {
 }
 
 function applyDynamicPanel(node) {
+  repairCorruptedValues(node);
+
   for (const name of ALL_TYPE_WIDGETS) setWidgetHidden(node, name, true);
 
   const type = connectedType(node);
@@ -281,9 +383,24 @@ app.registerExtension({
     };
 
     const configure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function() {
+    nodeType.prototype.onConfigure = function(info) {
+      const named = info?.properties?.[VALUES_PROP];
       const result = configure?.apply(this, arguments);
-      queueMicrotask(() => initNode(this));
+      queueMicrotask(() => {
+        if (!restoreNamedValues(this, named)) repairCorruptedValues(this);
+        initNode(this);
+      });
+      return result;
+    };
+
+    const serialize = nodeType.prototype.onSerialize;
+    nodeType.prototype.onSerialize = function(info) {
+      repairCorruptedValues(this);
+      const result = serialize?.apply(this, arguments);
+      if (info) {
+        info.properties ||= {};
+        info.properties[VALUES_PROP] = namedValues(this);
+      }
       return result;
     };
   },
