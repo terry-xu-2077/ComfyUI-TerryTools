@@ -1,0 +1,329 @@
+const CARET = "\u200B";
+
+const SECTION_LABELS = {
+  subject_definitions: ["主体定义", "Subject Definitions"],
+  summary: ["摘要", "Summary"],
+  retention_analysis: ["保留关系分析", "Retention Analysis"],
+  detailed_description: ["详细描述", "Detailed Description"],
+  integrated_multimodal_description: ["综合多模态描述", "Integrated Multimodal Description"],
+  overall_soundscape: ["整体声景", "Overall Soundscape"],
+  non_diegetic_music: ["非剧情音乐", "Non-diegetic Music"],
+};
+
+const EXACT_LABELS = new Map([
+  ["fully_preserved", ["完整保留", "Fully Preserved"]],
+  ["partially_preserved", ["部分保留", "Partially Preserved"]],
+  ["attribute_transfer", ["属性迁移", "Attribute Transfer"]],
+  ["weak_reference", ["弱参考", "Weak Reference"]],
+  ["fully_copy", ["完整复制", "Fully Copy"]],
+  ["partially_copy", ["部分复制", "Partially Copy"]],
+  ["reference", ["参考", "Reference"]],
+  ["<scenetrans>", ["跨镜头连续", "Scene Transition"]],
+  ["<cutoff>", ["结尾截断", "Cutoff"]],
+  ["[reference generation]", ["参考生成", "Reference Generation"]],
+  ["[keyframe completion]", ["关键帧补全", "Keyframe Completion"]],
+  ["[video editing]", ["视频编辑", "Video Editing"]],
+  ["[video continuation]", ["视频续写", "Video Continuation"]],
+  ["[audio reuse]", ["音频复用", "Audio Reuse"]],
+  ["[audio reference]", ["音频参考", "Audio Reference"]],
+]);
+
+export const H3_TOKEN_PATTERN = /<d>\[[^\]]+\][\s\S]*?<\/d>|<(?:Subject|Picture|Video|Audio)\s+\d+>|\[Shot\s+\d+\]|\(S\d+\)|<scenetrans>|<cutoff>|\b(?:fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)\b|\b\d{2}:\d{2}\.\d{3}\b|^(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):|\[(?:reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(?:\s*\+[^\]]+)?\]/gmi;
+
+export function h3LocaleIsZh() {
+  try {
+    const value = globalThis.app?.ui?.settings?.getSettingValue?.("Comfy.Locale");
+    const fallback = document?.documentElement?.lang || navigator.language || "en";
+    const locale = String(value || fallback).trim().toLowerCase().replaceAll("_", "-");
+    return locale === "zh" || locale.startsWith("zh-");
+  } catch {
+    return String(navigator.language || "en").toLowerCase().startsWith("zh");
+  }
+}
+
+function pickLabel(pair) {
+  return pair?.[h3LocaleIsZh() ? 0 : 1] || "";
+}
+
+export function h3TokenType(raw) {
+  const value = String(raw || "").trim();
+  if (/^(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):$/i.test(value)) return "section";
+  if (/^<Subject\s+\d+>$/i.test(value)) return "subject";
+  if (/^<Picture\s+\d+>$/i.test(value)) return "picture";
+  if (/^<Video\s+\d+>$/i.test(value)) return "video";
+  if (/^<Audio\s+\d+>$/i.test(value)) return "audio";
+  if (/^\[Shot\s+\d+\]$/i.test(value)) return "shot";
+  if (/^\(S\d+\)$/i.test(value)) return "speaker";
+  if (/^<d>\[/i.test(value)) return "dialogue";
+  if (/^(fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)$/i.test(value)) return "retention";
+  if (/^\d{2}:\d{2}\.\d{3}$/.test(value)) return "time";
+  if (/^<(scenetrans|cutoff)>$/i.test(value)) return "transition";
+  if (/^\[(reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(\s*\+[^\]]+)?\]$/i.test(value)) return "task";
+  return "plain";
+}
+
+export function h3VisibleLabel(raw) {
+  const value = String(raw || "").trim();
+  const zh = h3LocaleIsZh();
+  const section = value.match(/^([a-z_]+):$/i);
+  if (section && SECTION_LABELS[section[1].toLowerCase()]) return pickLabel(SECTION_LABELS[section[1].toLowerCase()]);
+  if (EXACT_LABELS.has(value)) return pickLabel(EXACT_LABELS.get(value));
+  let m = value.match(/^<Subject\s+(\d+)>$/i);
+  if (m) return zh ? `主体 ${m[1]}` : `Subject ${m[1]}`;
+  m = value.match(/^<Picture\s+(\d+)>$/i);
+  if (m) return zh ? `图片 ${m[1]}` : `Picture ${m[1]}`;
+  m = value.match(/^<Video\s+(\d+)>$/i);
+  if (m) return zh ? `视频 ${m[1]}` : `Video ${m[1]}`;
+  m = value.match(/^<Audio\s+(\d+)>$/i);
+  if (m) return zh ? `音频 ${m[1]}` : `Audio ${m[1]}`;
+  m = value.match(/^\[Shot\s+(\d+)\]$/i);
+  if (m) return zh ? `镜头 ${m[1]}` : `Shot ${m[1]}`;
+  m = value.match(/^\(S(\d+)\)$/i);
+  if (m) return zh ? `说话人 S${m[1]}` : `Speaker S${m[1]}`;
+  if (/^\d{2}:\d{2}\.\d{3}$/.test(value)) return zh ? `时间 ${value}` : `Time ${value}`;
+  return value;
+}
+
+function appendText(container, text) {
+  String(text || "").split("\n").forEach((part, index) => {
+    if (index) container.append(document.createElement("br"));
+    if (part) container.append(document.createTextNode(part));
+  });
+}
+
+function baseChip(raw, type) {
+  const chip = document.createElement("span");
+  chip.className = `terry-h3-chip terry-h3-type-${type}`;
+  chip.contentEditable = "false";
+  chip.dataset.raw = raw;
+  return chip;
+}
+
+function dialogueChip(raw, onChange) {
+  const match = String(raw || "").match(/^<d>\[([^\]]+)\]\s*([\s\S]*?)<\/d>$/i);
+  const chip = baseChip(raw, "dialogue");
+  chip.classList.add("terry-h3-dialogue", "terry-h3-dialogue-editor");
+  if (!match) { chip.textContent = raw; return chip; }
+  const language = document.createElement("span");
+  language.className = "terry-h3-dialogue-language-label";
+  language.textContent = match[1];
+  const text = document.createElement("span");
+  text.className = "terry-h3-dialogue-text";
+  text.contentEditable = "true";
+  text.spellcheck = false;
+  text.textContent = match[2] || "";
+  const update = () => {
+    chip.dataset.raw = `<d>[${language.textContent}] ${text.innerText.replaceAll("\n", " ")}</d>`;
+    onChange?.();
+  };
+  text.addEventListener("input", update);
+  text.addEventListener("pointerdown", (event) => event.stopPropagation());
+  text.addEventListener("keydown", (event) => { event.stopPropagation(); if (event.key === "Enter") event.preventDefault(); });
+  chip.append(language, text);
+  return chip;
+}
+
+function mediaChip(raw, type, resolveMedia) {
+  const match = raw.match(/^<(Picture|Video|Audio)\s+(\d+)>$/i);
+  const index = Number(match?.[2]) || 1;
+  const info = resolveMedia?.(type, index) || null;
+  const chip = baseChip(raw, type);
+  chip.classList.add("terry-h3-media-chip");
+  if (info?.preview && type !== "audio") {
+    const image = document.createElement("img");
+    image.src = info.preview;
+    image.alt = "";
+    image.draggable = false;
+    chip.append(image);
+  } else {
+    const icon = document.createElement("span");
+    icon.className = "terry-h3-media-icon";
+    icon.textContent = type === "audio" ? "♪" : type === "video" ? "▶" : "▧";
+    chip.append(icon);
+  }
+  const label = document.createElement("span");
+  label.textContent = h3VisibleLabel(raw);
+  chip.append(label);
+  chip.title = info?.source || raw;
+  return chip;
+}
+
+export function createH3TokenNode(raw, options = {}) {
+  const type = h3TokenType(raw);
+  if (type === "plain") return document.createTextNode(raw);
+  if (type === "dialogue") return dialogueChip(raw, options.onChange);
+  if (["picture", "video", "audio"].includes(type)) return mediaChip(raw, type, options.resolveMedia);
+  const chip = baseChip(raw, type);
+  const label = document.createElement("span");
+  label.textContent = h3VisibleLabel(raw);
+  chip.append(label);
+  if (type === "shot") chip.title = h3LocaleIsZh() ? "点击切换镜头序号" : "Click to change shot number";
+  if (type === "speaker") chip.title = h3LocaleIsZh() ? "点击切换说话人序号" : "Click to change speaker number";
+  return chip;
+}
+
+function freshTokenRegex() {
+  return new RegExp(H3_TOKEN_PATTERN.source, H3_TOKEN_PATTERN.flags);
+}
+
+export function renderH3RichText(editor, raw, options = {}) {
+  if (!editor) return;
+  editor.replaceChildren();
+  const source = String(raw || "");
+  const regex = freshTokenRegex();
+  let last = 0;
+  let match;
+  while ((match = regex.exec(source))) {
+    appendText(editor, source.slice(last, match.index));
+    editor.append(createH3TokenNode(match[0], options));
+    last = regex.lastIndex;
+  }
+  appendText(editor, source.slice(last));
+}
+
+export function renderH3RawText(editor, raw) {
+  if (!editor) return;
+  editor.replaceChildren();
+  appendText(editor, raw);
+}
+
+export function serializeH3RichText(editor) {
+  let out = "";
+  const walk = (root) => {
+    for (const child of root?.childNodes || []) {
+      if (child.nodeType === Node.TEXT_NODE) out += String(child.nodeValue || "").replaceAll(CARET, "");
+      else if (child.nodeType === Node.ELEMENT_NODE) {
+        if (child.dataset?.raw != null) out += child.dataset.raw;
+        else if (child.tagName === "BR") out += "\n";
+        else walk(child);
+      }
+    }
+  };
+  walk(editor);
+  return out;
+}
+
+export function insertH3RichTextAtSelection(editor, text, options = {}) {
+  const selection = window.getSelection?.();
+  if (!selection?.rangeCount) return false;
+  const range = selection.getRangeAt(0);
+  if (!editor?.contains?.(range.commonAncestorContainer)) return false;
+  range.deleteContents();
+  const temp = document.createElement("div");
+  renderH3RichText(temp, text, options);
+  const fragment = document.createDocumentFragment();
+  while (temp.firstChild) fragment.append(temp.firstChild);
+  const marker = document.createTextNode(CARET);
+  fragment.append(marker);
+  range.insertNode(fragment);
+  const next = document.createRange();
+  next.setStart(marker, marker.textContent.length);
+  next.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(next);
+  return true;
+}
+
+function maxNumber(source, pattern) {
+  let max = 0;
+  for (const match of String(source || "").matchAll(pattern)) max = Math.max(max, Number(match[1]) || 0);
+  return Math.max(1, max);
+}
+
+function closePicker(state) {
+  state.menu?.remove?.();
+  state.menu = null;
+  state.abort?.abort?.();
+  state.abort = null;
+}
+
+function openNumberPicker(editor, chip, type, options, state) {
+  closePicker(state);
+  const current = Number(String(chip.dataset.raw || "").match(/\d+/)?.[0] || 1);
+  const source = options.getSourceText?.() || serializeH3RichText(editor);
+  const max = type === "speaker"
+    ? maxNumber(source, /\(S(\d+)\)/gi)
+    : maxNumber(source, /\[Shot\s+(\d+)\]/gi);
+  const menu = document.createElement("div");
+  menu.className = "terry-h3-number-picker";
+  const head = document.createElement("div");
+  head.className = "terry-h3-number-picker-head";
+  head.textContent = type === "speaker"
+    ? (h3LocaleIsZh() ? "切换说话人序号" : "Change speaker number")
+    : (h3LocaleIsZh() ? "切换镜头序号" : "Change shot number");
+  menu.append(head);
+  const grid = document.createElement("div");
+  grid.className = "terry-h3-number-picker-grid";
+  const applyNumber = (number) => {
+    number = Math.max(1, Math.floor(Number(number) || 1));
+    chip.dataset.raw = type === "speaker" ? `(S${number})` : `[Shot ${number}]`;
+    const label = [...chip.children].reverse().find((item) => item.tagName === "SPAN") || chip;
+    label.textContent = h3VisibleLabel(chip.dataset.raw);
+    options.onChange?.();
+    closePicker(state);
+  };
+  for (let index = 1; index <= Math.max(max + 1, current, 6); index++) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = type === "speaker" ? `S${index}` : String(index);
+    if (index === current) button.classList.add("is-current");
+    button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); applyNumber(index); });
+    grid.append(button);
+  }
+  menu.append(grid);
+  document.body.append(menu);
+  state.menu = menu;
+  const rect = chip.getBoundingClientRect();
+  const width = 230;
+  let left = Math.max(8, Math.min(rect.left, innerWidth - width - 8));
+  let top = rect.bottom + 6;
+  if (top + 170 > innerHeight - 8) top = Math.max(8, rect.top - 176);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+  const abort = new AbortController();
+  state.abort = abort;
+  setTimeout(() => document.addEventListener("pointerdown", (event) => {
+    if (!menu.contains(event.target) && !chip.contains(event.target)) closePicker(state);
+  }, { capture: true, signal: abort.signal }), 0);
+}
+
+export function bindH3TagInteractions(editor, options = {}) {
+  if (!editor || editor.__terryH3RichTextInteractions) return;
+  editor.__terryH3RichTextInteractions = true;
+  const state = { menu: null, abort: null };
+  editor.addEventListener("pointerdown", (event) => {
+    const chip = event.target?.closest?.(".terry-h3-chip");
+    if (!chip || !editor.contains(chip)) return;
+    const type = h3TokenType(chip.dataset.raw);
+    if (type !== "shot" && type !== "speaker") return;
+    event.preventDefault();
+    event.stopPropagation();
+    openNumberPicker(editor, chip, type, options, state);
+  });
+}
+
+export function installH3RichTextStyles() {
+  if (document.getElementById("terry-h3-rich-text-style")) return;
+  const style = document.createElement("style");
+  style.id = "terry-h3-rich-text-style";
+  style.textContent = `
+.terry-h3-chip{display:inline-flex;align-items:center;gap:4px;margin:1px 2px;padding:1px 5px;border-radius:4px;border:1px solid transparent;background:rgba(255,255,255,.08);font-size:10px;white-space:nowrap;vertical-align:middle;transition:background .12s,border-color .12s,color .12s,box-shadow .12s}
+.terry-h3-chip img{width:24px;height:24px;object-fit:cover;border-radius:3px}
+.terry-h3-type-section{display:inline!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;color:rgba(205,205,205,.66)!important;font-weight:700!important;font-size:12px!important}
+.terry-h3-type-subject{background:rgba(180,140,255,.13)!important;color:rgb(220,202,255)!important;box-shadow:inset 0 0 0 1px rgba(180,140,255,.25)!important}
+.terry-h3-type-picture{background:rgba(0,210,180,.12)!important;color:rgb(184,255,242)!important;box-shadow:inset 0 0 0 1px rgba(0,210,180,.24)!important}
+.terry-h3-type-video{background:rgba(76,170,255,.13)!important;color:rgb(194,226,255)!important;box-shadow:inset 0 0 0 1px rgba(76,170,255,.25)!important}
+.terry-h3-type-audio{background:rgba(255,174,70,.12)!important;color:rgb(255,224,183)!important;box-shadow:inset 0 0 0 1px rgba(255,174,70,.24)!important}
+.terry-h3-type-shot{background:rgba(255,215,75,.13)!important;color:rgb(255,236,166)!important;box-shadow:inset 0 0 0 1px rgba(255,215,75,.25)!important;cursor:pointer!important}
+.terry-h3-type-speaker{background:rgba(255,120,160,.12)!important;color:rgb(255,203,219)!important;box-shadow:inset 0 0 0 1px rgba(255,120,160,.24)!important;cursor:pointer!important}
+.terry-h3-type-dialogue{background:rgba(0,226,187,.13)!important;color:rgb(190,255,244)!important;box-shadow:inset 0 0 0 1px rgba(0,226,187,.22)!important}
+.terry-h3-type-retention{background:rgba(145,155,175,.12)!important;color:rgb(220,225,235)!important;box-shadow:inset 0 0 0 1px rgba(170,180,200,.2)!important}
+.terry-h3-type-time{background:rgba(110,190,255,.1)!important;color:rgb(196,229,255)!important;box-shadow:inset 0 0 0 1px rgba(110,190,255,.2)!important}
+.terry-h3-type-transition{background:rgba(255,145,95,.11)!important;color:rgb(255,213,191)!important;box-shadow:inset 0 0 0 1px rgba(255,145,95,.22)!important}
+.terry-h3-type-task{background:rgba(128,205,125,.11)!important;color:rgb(207,245,205)!important;box-shadow:inset 0 0 0 1px rgba(128,205,125,.22)!important}
+.terry-h3-dialogue-editor{white-space:normal!important}.terry-h3-dialogue-language-label{opacity:.72;font-size:9px}.terry-h3-dialogue-text{outline:none;min-width:30px;white-space:normal}
+.terry-h3-number-picker{position:fixed;z-index:10140;width:230px;padding:7px;border:1px solid rgba(255,255,255,.15);border-radius:9px;background:var(--comfy-menu-bg,#202225);box-shadow:0 16px 38px rgba(0,0,0,.48);color:var(--input-text,#ddd)}
+.terry-h3-number-picker-head{padding:3px 4px 7px;font:600 11px/1.2 system-ui,sans-serif;opacity:.75}.terry-h3-number-picker-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}.terry-h3-number-picker-grid button{height:28px;border:0;border-radius:5px;background:rgba(255,255,255,.06);color:inherit;cursor:pointer}.terry-h3-number-picker-grid button:hover,.terry-h3-number-picker-grid button.is-current{background:rgba(255,215,75,.2);color:rgb(255,236,166)}
+`;
+  document.head.append(style);
+}
