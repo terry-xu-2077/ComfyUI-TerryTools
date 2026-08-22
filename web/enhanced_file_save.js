@@ -30,9 +30,10 @@ const FILE_LABELS = [
   "尾部添加序列号","Append Sequence","序列号起始值","Sequence Start",
   "序列号位数","Sequence Padding",
 ];
-const BOX_STROKE = "rgba(180,180,180,.34)";
+const BOX_STROKE = "rgba(190,190,190,.38)";
 const BOX_LINE_WIDTH = 2;
-const DOM_PAD = 14;
+const BOX_RADIUS = 10;
+const BOX_PAD_Y = 9;
 
 function getWidget(node, name) {
   return node.widgets?.find((w) => w?.name === name) || null;
@@ -156,26 +157,26 @@ function widgetY(widget) {
   return null;
 }
 function classicBounds(node, names) {
-  const ys = [];
+  const rows = [];
   for (const name of names) {
     const widget = getWidget(node, name);
     if (!widget || widget.hidden || widget.options?.hidden) continue;
     const y = widgetY(widget);
-    if (y != null) ys.push(y);
+    if (y == null) continue;
+    let height = 20;
+    try {
+      const size = widget.computeSize?.(Math.max(0, (node.size?.[0] || 0) - 24));
+      const h = Number(size?.[1]);
+      if (Number.isFinite(h) && h > 8 && h < 80) height = h;
+    } catch {}
+    rows.push({ y, height });
   }
-  if (!ys.length) return null;
-  const sorted = ys.sort((a, b) => a - b);
-  let step = 28;
-  if (sorted.length > 1) {
-    const gaps = sorted.slice(1).map((v, i) => v - sorted[i]).filter((v) => v > 8 && v < 80);
-    if (gaps.length) step = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-  }
-  const halfCell = Math.max(13, Math.min(18, step / 2));
-  const pad = 5;
-  return {
-    top: sorted[0] - halfCell - pad,
-    bottom: sorted[sorted.length - 1] + halfCell + pad,
-  };
+  if (!rows.length) return null;
+  rows.sort((a, b) => a.y - b.y);
+  const firstTop = rows[0].y;
+  const last = rows[rows.length - 1];
+  const lastBottom = last.y + last.height;
+  return { top: firstTop - BOX_PAD_Y, bottom: lastBottom + BOX_PAD_Y };
 }
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -201,7 +202,7 @@ function drawBox(node, ctx, bounds) {
   const width = Number(node.size?.[0]) || 0;
   if (width <= 40 || bounds.bottom <= bounds.top) return;
   ctx.save();
-  roundedRectPath(ctx, 10, bounds.top, width - 20, bounds.bottom - bounds.top, 10);
+  roundedRectPath(ctx, 10, bounds.top, width - 20, bounds.bottom - bounds.top, BOX_RADIUS);
   ctx.strokeStyle = BOX_STROKE;
   ctx.lineWidth = BOX_LINE_WIDTH;
   ctx.stroke();
@@ -228,86 +229,83 @@ function isTargetRoot(root) {
   return text.includes("Terry 增强文件保存") || text.includes("Terry Enhanced File Save");
 }
 function findNodeRoots() {
-  const roots = [];
-  for (const el of document.querySelectorAll("[data-node-id]")) if (isTargetRoot(el)) roots.push(el);
-  return roots;
+  return [...document.querySelectorAll("[data-node-id]")].filter(isTargetRoot);
 }
-function labelRect(root, label) {
+function labelRow(root, label) {
   const rootRect = root.getBoundingClientRect();
   let best = null;
   for (const el of root.querySelectorAll("*")) {
     if (normalizedText(el) !== label) continue;
     let row = el;
     for (let i = 0; i < 5 && row?.parentElement && row.parentElement !== root; i++) {
-      const pr = row.parentElement.getBoundingClientRect();
-      if (pr.width >= rootRect.width * 0.55 && pr.height >= 22 && pr.height <= 72) row = row.parentElement;
+      const parent = row.parentElement;
+      const pr = parent.getBoundingClientRect();
+      if (pr.width >= rootRect.width * 0.55 && pr.height >= 22 && pr.height <= 72) row = parent;
       else break;
     }
-    const r = row.getBoundingClientRect();
-    if (!best || r.width > best.width) best = r;
+    const rect = row.getBoundingClientRect();
+    if (!best || rect.width > best.getBoundingClientRect().width) best = row;
   }
   return best;
 }
-function screenBounds(root, labels) {
+function localBounds(root, labels) {
+  const rootRect = root.getBoundingClientRect();
   const rects = [];
+  const seen = new Set();
   for (const label of labels) {
-    const r = labelRect(root, label);
-    if (r && r.width > 0 && r.height > 0) rects.push(r);
+    const row = labelRow(root, label);
+    if (!row || seen.has(row)) continue;
+    seen.add(row);
+    const r = row.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) rects.push(r);
   }
   if (!rects.length) return null;
   return {
-    top: Math.min(...rects.map((r) => r.top)) - DOM_PAD,
-    bottom: Math.max(...rects.map((r) => r.bottom)) + DOM_PAD,
+    top: Math.min(...rects.map((r) => r.top)) - rootRect.top - BOX_PAD_Y,
+    bottom: Math.max(...rects.map((r) => r.bottom)) - rootRect.top + BOX_PAD_Y,
   };
 }
-function ensureFixedOverlay(key) {
-  const id = `terry-enhanced-fixed-${key}`;
-  let el = document.getElementById(id);
+function ensureLocalOverlay(root, key) {
+  let el = root.querySelector(`:scope > .terry-enhanced-group-${key}`);
   if (!el) {
     el = document.createElement("div");
-    el.id = id;
+    el.className = `terry-enhanced-group-${key}`;
     Object.assign(el.style, {
-      position: "fixed",
+      position: "absolute",
+      left: "10px",
+      right: "10px",
       border: `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`,
-      borderRadius: "10px",
+      borderRadius: `${BOX_RADIUS}px`,
       pointerEvents: "none",
       boxSizing: "border-box",
-      zIndex: "9999",
+      zIndex: "2",
       display: "none",
     });
-    document.body.appendChild(el);
+    root.appendChild(el);
   }
   return el;
 }
 function updateNodes2Boxes() {
-  const roots = findNodeRoots();
-  const active = [];
-  roots.forEach((root, index) => {
-    const rootRect = root.getBoundingClientRect();
-    let media = screenBounds(root, MEDIA_LABELS);
-    let file = screenBounds(root, FILE_LABELS);
+  for (const root of findNodeRoots()) {
+    const mediaRaw = localBounds(root, MEDIA_LABELS);
+    const fileRaw = localBounds(root, FILE_LABELS);
+    let media = mediaRaw;
+    let file = fileRaw;
     if (media && file && media.bottom > file.top - 8) {
       const middle = (media.bottom + file.top) / 2;
       media = { ...media, bottom: middle - 4 };
       file = { ...file, top: middle + 4 };
     }
     for (const [kind, bounds] of [["media", media], ["file", file]]) {
-      const el = ensureFixedOverlay(`${kind}-${index}`);
-      active.push(el);
-      el.style.border = `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`;
+      const el = ensureLocalOverlay(root, kind);
       if (!bounds || bounds.bottom <= bounds.top) {
         el.style.display = "none";
         continue;
       }
       el.style.display = "block";
-      el.style.left = `${rootRect.left + 10}px`;
-      el.style.width = `${Math.max(0, rootRect.width - 20)}px`;
       el.style.top = `${bounds.top}px`;
       el.style.height = `${bounds.bottom - bounds.top}px`;
     }
-  });
-  for (const el of document.querySelectorAll('[id^="terry-enhanced-fixed-"]')) {
-    if (!active.includes(el)) el.style.display = "none";
   }
 }
 let domQueued = false;
@@ -367,9 +365,8 @@ let observer = null;
 function installObserver() {
   if (observer || !document.body) return;
   observer = new MutationObserver(queueNodes2Refresh);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener("resize", queueNodes2Refresh, { passive: true });
-  window.addEventListener("scroll", queueNodes2Refresh, { passive: true, capture: true });
 }
 
 app.registerExtension({
