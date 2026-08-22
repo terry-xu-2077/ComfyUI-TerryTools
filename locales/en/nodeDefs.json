@@ -1,15 +1,11 @@
 {
   "EnhancedFileSave": {
     "display_name": "Terry Enhanced File Save",
-    "description": "Save VIDEO / STRING / IMAGE / AUDIO from one input, with exact filenames, %date% timestamps and optional sequence numbers.",
+    "description": "Save VIDEO / STRING / IMAGE / AUDIO from one input, with exact filenames, selectable %date% formatting and optional sequence numbers.",
     "inputs": {
       "data": {"name": "Content", "tooltip": "Supports VIDEO / STRING / IMAGE / AUDIO."},
-      "filename_template": {"name": "Filename", "tooltip": "May include subfolders such as project/shot_%date%. %date% is replaced using the timestamp options below."},
-      "use_timestamp": {"name": "Enable %date% timestamp"},
-      "ts_year": {"name": "Timestamp: Year"},
-      "ts_date": {"name": "Timestamp: Date"},
-      "ts_hour": {"name": "Timestamp: Hour"},
-      "ts_minute_second": {"name": "Timestamp: Minute/Second"},
+      "filename_template": {"name": "Filename", "tooltip": "May include subfolders such as project/shot_%date%. %date% uses the selected date format."},
+      "date_format": {"name": "Date format", "tooltip": "Replaces %date% using the selected format; choose none for no date."},
       "append_sequence": {"name": "Append sequence number", "tooltip": "When disabled, no automatic ComfyUI counter is appended. Existing targets are overwritten."},
       "sequence_start": {"name": "Sequence start"},
       "sequence_padding": {"name": "Sequence digits"},
