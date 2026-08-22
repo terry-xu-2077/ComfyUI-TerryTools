@@ -3,6 +3,7 @@ import { app } from "../../scripts/app.js";
 const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
 const EMPTY_TYPE = "*";
+const LANE_FIELD = "terry_lane_id";
 
 function nodeType(node) {
   return String(node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || "");
@@ -95,12 +96,13 @@ function fallbackType(source, input) {
 function namedEntries(pack) {
   const entries = [];
   for (const input of pack?.inputs || []) {
-    if (!input || input.link == null) continue;
+    const laneId = String(input?.[LANE_FIELD] || "").trim();
+    if (!input || !laneId || input.link == null) continue;
     const source = resolveSource(pack.graph, input.link);
     if (!source) continue;
     const semantic = preferredPortName(source);
     const base = semantic || fallbackType(source, input);
-    entries.push({ input, source, base });
+    entries.push({ laneId, input, source, base });
   }
 
   const totals = new Map();
@@ -130,9 +132,11 @@ function applyNames(pack) {
   for (const node of pack.graph?._nodes || []) {
     if (!isUnpack(node)) continue;
     if (findPackForUnpack(node) !== pack) continue;
-    for (let i = 0; i < Math.min(entries.length, node.outputs?.length || 0); i++) {
-      node.outputs[i].name = entries[i].label;
-      node.outputs[i].label = entries[i].label;
+    for (const entry of entries) {
+      const output = (node.outputs || []).find((item) => item?.[LANE_FIELD] === entry.laneId);
+      if (!output) continue;
+      output.name = entry.label;
+      output.label = entry.label;
     }
     node.setDirtyCanvas?.(true, true);
   }

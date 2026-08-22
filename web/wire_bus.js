@@ -5,6 +5,19 @@ const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
 const BUS_TYPE = "TERRY_WIRE_BUS";
 const EMPTY_TYPE = "*";
+const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
+const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
+const LANE_FIELD = "terry_lane_id";
+
+let laneSequence = 0;
+
+function newLaneId() {
+  try {
+    if (globalThis.crypto?.randomUUID) return `lane_${globalThis.crypto.randomUUID()}`;
+  } catch {}
+  laneSequence += 1;
+  return `lane_${Date.now().toString(36)}_${laneSequence.toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 function localeCode() {
   try {
@@ -203,6 +216,110 @@ function findPackFromUnpack(unpack) {
   return upstream && isPack(upstream.node) ? upstream.node : null;
 }
 
+function nodeProperties(node) {
+  if (!node.properties || typeof node.properties !== "object") node.properties = {};
+  return node.properties;
+}
+
+function storedPackLanes(pack) {
+  const properties = nodeProperties(pack);
+  const raw = Array.isArray(properties[PACK_LANES_PROPERTY]) ? properties[PACK_LANES_PROPERTY] : [];
+  const lanes = [];
+  const seen = new Set();
+  for (const value of raw) {
+    const lane = typeof value === "string" ? { id: value } : { ...value };
+    const id = String(lane?.id || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    lanes.push({
+      id,
+      name: String(lane.name || "").trim(),
+      type: String(lane.type || EMPTY_TYPE).trim() || EMPTY_TYPE,
+    });
+  }
+  properties[PACK_LANES_PROPERTY] = lanes;
+  return lanes;
+}
+
+function isAddWireInput(input) {
+  if (!input || input.link != null || input[LANE_FIELD]) return false;
+  return String(input.name || "") === "wire" || String(input.type || EMPTY_TYPE) === EMPTY_TYPE;
+}
+
+function ensurePackLanes(pack) {
+  if (!pack) return [];
+  const stored = storedPackLanes(pack);
+  const byId = new Map(stored.map((lane) => [lane.id, lane]));
+  const inputs = pack.inputs || [];
+  const hasAddWire = inputs.length > 0 && isAddWireInput(inputs[inputs.length - 1]);
+  const laneInputCount = inputs.length - (hasAddWire ? 1 : 0);
+  const count = Math.max(stored.length, laneInputCount);
+  const lanes = [];
+  const used = new Set();
+
+  for (let index = 0; index < count; index++) {
+    let input = pack.inputs?.[index];
+    if (!input) input = pack.addInput?.("wire", EMPTY_TYPE);
+    if (!input) continue;
+
+    let id = String(input[LANE_FIELD] || stored[index]?.id || "").trim();
+    if (!id || used.has(id)) id = newLaneId();
+    used.add(id);
+    input[LANE_FIELD] = id;
+
+    const previous = byId.get(id) || stored[index] || {};
+    lanes.push({
+      id,
+      name: String(previous.name || input.label || input.name || "").trim(),
+      type: String(previous.type || input.type || EMPTY_TYPE).trim() || EMPTY_TYPE,
+    });
+  }
+
+  nodeProperties(pack)[PACK_LANES_PROPERTY] = lanes;
+  return lanes;
+}
+
+function laneInput(pack, laneId) {
+  return (pack?.inputs || []).find((input) => input?.[LANE_FIELD] === laneId) || null;
+}
+
+function connectedUnpacksForPack(pack) {
+  const result = [];
+  for (const graph of allGraphs()) {
+    for (const node of graph?._nodes || []) {
+      if (isUnpack(node) && findPackFromUnpack(node) === pack) result.push(node);
+    }
+  }
+  return result;
+}
+
+function ensureUnpackLaneIds(unpack, lanes) {
+  const properties = nodeProperties(unpack);
+  const stored = Array.isArray(properties[UNPACK_LANES_PROPERTY])
+    ? properties[UNPACK_LANES_PROPERTY].map((id) => String(id || ""))
+    : [];
+  const ids = [];
+  for (let index = 0; index < (unpack.outputs?.length || 0); index++) {
+    const output = unpack.outputs[index];
+    const id = String(output?.[LANE_FIELD] || stored[index] || lanes[index]?.id || "").trim();
+    if (!id) continue;
+    output[LANE_FIELD] = id;
+    ids[index] = id;
+  }
+  properties[UNPACK_LANES_PROPERTY] = ids;
+  return ids;
+}
+
+function laneHasOutputLinks(pack, laneId) {
+  const lanes = ensurePackLanes(pack);
+  for (const unpack of connectedUnpacksForPack(pack)) {
+    ensureUnpackLaneIds(unpack, lanes);
+    const output = (unpack.outputs || []).find((item) => item?.[LANE_FIELD] === laneId);
+    if ((output?.links?.length || 0) > 0) return true;
+  }
+  return false;
+}
+
 function displayType(type) {
   const value = String(type || EMPTY_TYPE).trim();
   return value && value !== EMPTY_TYPE ? value : null;
@@ -210,36 +327,45 @@ function displayType(type) {
 
 function numberDuplicateTypes(entries) {
   const totals = new Map();
-  for (const entry of entries) {
-    const key = displayType(entry.type);
-    if (key) totals.set(key, (totals.get(key) || 0) + 1);
-  }
+  const bases = entries.map((entry, index) => {
+    const rawName = String(entry.name || "").trim();
+    const name = rawName && rawName !== "wire" ? rawName : "";
+    return name || displayType(entry.type) || `${labels().input} ${index + 1}`;
+  });
+  for (const base of bases) totals.set(base, (totals.get(base) || 0) + 1);
   const seen = new Map();
   return entries.map((entry, index) => {
-    const key = displayType(entry.type);
-    if (!key) return { ...entry, name: entry.name || `${labels().input} ${index + 1}` };
-    const total = totals.get(key) || 0;
-    const current = (seen.get(key) || 0) + 1;
-    seen.set(key, current);
-    return { ...entry, name: total > 1 ? `${key} ${current}` : key };
+    const base = bases[index];
+    const current = (seen.get(base) || 0) + 1;
+    seen.set(base, current);
+    return { ...entry, name: (totals.get(base) || 0) > 1 ? `${base} ${current}` : base };
   });
 }
 
-function connectedPackEntries(pack) {
+function packLaneEntries(pack) {
   if (!pack?.graph) return [];
-  const entries = [];
-  for (let i = 0; i < (pack.inputs?.length || 0); i++) {
-    const input = pack.inputs[i];
-    if (!input || input.link == null) continue;
-    const source = resolveUpstream(pack.graph, input.link);
-    if (!source) continue;
-    entries.push({
+  const lanes = ensurePackLanes(pack);
+  const entries = lanes.map((lane, index) => {
+    const input = laneInput(pack, lane.id);
+    const source = input?.link == null ? null : resolveUpstream(pack.graph, input.link);
+    return {
+      laneId: lane.id,
+      lane,
+      input,
       source,
-      type: source.type || input.type || EMPTY_TYPE,
-      name: source.name || input.label || input.name || `${labels().input} ${entries.length + 1}`,
-    });
+      type: source?.type || lane.type || input?.type || EMPTY_TYPE,
+      name: source?.name || lane.name || input?.label || input?.name || `${labels().input} ${index + 1}`,
+    };
+  });
+  const numbered = numberDuplicateTypes(entries);
+  for (const entry of numbered) {
+    if (entry.source) {
+      entry.lane.name = entry.name;
+      entry.lane.type = entry.type || EMPTY_TYPE;
+    }
   }
-  return numberDuplicateTypes(entries);
+  nodeProperties(pack)[PACK_LANES_PROPERTY] = lanes;
+  return numbered;
 }
 
 function disconnectAllOutputLinks(node, outputIndex) {
@@ -252,10 +378,12 @@ function disconnectAllOutputLinks(node, outputIndex) {
 }
 
 function signatureForEntries(entries) {
-  return entries.map((entry) => `${entry.source?.nodeId}:${entry.source?.slot}:${entry.type}:${entry.name}`).join("|");
+  return entries.map((entry) =>
+    `${entry.laneId}:${entry.source?.nodeId ?? ""}:${entry.source?.slot ?? ""}:${entry.type}:${entry.name}`
+  ).join("|");
 }
 
-function localizeFixedPorts(node) {
+function localizeFixedPorts(node, updateTitle = false) {
   const text = labels();
   if (isPack(node)) {
     const out = node.outputs?.[0];
@@ -264,7 +392,7 @@ function localizeFixedPorts(node) {
       out.label = text.bus;
       out.type = BUS_TYPE;
     }
-    node.title = text.packTitle;
+    if (updateTitle) node.title = text.packTitle;
   } else if (isUnpack(node)) {
     const input = node.inputs?.[0];
     if (input) {
@@ -272,37 +400,57 @@ function localizeFixedPorts(node) {
       input.label = text.bus;
       input.type = BUS_TYPE;
     }
-    node.title = text.unpackTitle;
+    if (updateTitle) node.title = text.unpackTitle;
   }
+}
+
+function emptyLaneLabel(name, index) {
+  const fallback = name || `${labels().input} ${index + 1}`;
+  return isChineseLocale() ? `[空] ${fallback}` : `[Empty] ${fallback}`;
 }
 
 function syncUnpack(unpack, force = false) {
   localizeFixedPorts(unpack);
   const pack = findPackFromUnpack(unpack);
-  const entries = pack ? connectedPackEntries(pack) : [];
+  const entries = pack ? packLaneEntries(pack) : [];
   const signature = signatureForEntries(entries);
   if (!force && unpack.__terryBusSignature === signature) return;
   unpack.__terryBusSignature = signature;
 
-  const outgoing = (unpack.outputs || []).map((_, index) =>
-    collectDownstreamTargets(unpack.graph, unpack, index)
-  );
+  ensureUnpackLaneIds(unpack, entries.map((entry) => entry.lane));
+  const desiredIds = new Set(entries.map((entry) => entry.laneId));
 
-  for (let i = (unpack.outputs?.length || 0) - 1; i >= 0; i--) {
-    disconnectAllOutputLinks(unpack, i);
-    unpack.removeOutput?.(i);
+  // Delete only lanes that disappeared on the pack side. Never rebuild all outputs:
+  // LiteGraph keeps the later output links attached while it shifts their slot indices.
+  for (let index = (unpack.outputs?.length || 0) - 1; index >= 0; index--) {
+    const output = unpack.outputs[index];
+    if (desiredIds.has(output?.[LANE_FIELD])) continue;
+    disconnectAllOutputLinks(unpack, index);
+    unpack.removeOutput?.(index);
   }
 
-  entries.forEach((entry, i) =>
-    unpack.addOutput(entry.name || `${labels().output} ${i + 1}`, entry.type || EMPTY_TYPE)
-  );
-
-  for (let i = 0; i < Math.min(outgoing.length, unpack.outputs?.length || 0); i++) {
-    for (const target of outgoing[i]) {
-      try { unpack.connect(i, target.node, target.slot); }
-      catch (error) { console.warn("[Terry Wire Bus] Failed to restore output link", error); }
+  for (const entry of entries) {
+    let output = (unpack.outputs || []).find((item) => item?.[LANE_FIELD] === entry.laneId);
+    if (!output) {
+      const previousLength = unpack.outputs?.length || 0;
+      const added = unpack.addOutput?.(entry.name || labels().output, entry.type || EMPTY_TYPE);
+      output = unpack.outputs?.[previousLength] || added;
+      if (output) output[LANE_FIELD] = entry.laneId;
     }
   }
+
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    const output = (unpack.outputs || []).find((item) => item?.[LANE_FIELD] === entry.laneId);
+    if (!output) continue;
+    output.type = entry.type || EMPTY_TYPE;
+    output.name = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
+    output.label = output.name;
+  }
+
+  nodeProperties(unpack)[UNPACK_LANES_PROPERTY] = (unpack.outputs || []).map(
+    (output) => output?.[LANE_FIELD] || ""
+  );
 
   unpack.setSize?.([
     Math.max(190, unpack.size?.[0] || 190),
@@ -321,28 +469,34 @@ function refreshPackSlots(pack) {
   if (!pack?.graph || app.configuringGraph) return;
   const text = labels();
   localizeFixedPorts(pack);
+  let entries = packLaneEntries(pack);
 
-  const connected = [];
-  for (let i = 0; i < (pack.inputs?.length || 0); i++) {
-    const input = pack.inputs[i];
-    if (!input || input.link == null) continue;
-    const source = resolveUpstream(pack.graph, input.link);
-    if (!source) continue;
-    input.type = source.type || EMPTY_TYPE;
-    connected.push({ input, source, type: input.type, name: source.name || input.name });
+  // First mirror every lane to connected unpack nodes. This gives legacy workflows
+  // stable lane ids before deciding whether an empty lane is still in use.
+  for (const unpack of connectedUnpacksForPack(pack)) syncUnpack(unpack, true);
+
+  // An unplugged input is retained while any paired output is connected. It is
+  // garbage-collected only after both ends of that exact lane are unused.
+  const removable = entries.filter((entry) => !entry.source && !laneHasOutputLinks(pack, entry.laneId));
+  for (const entry of removable) {
+    const index = (pack.inputs || []).findIndex((input) => input?.[LANE_FIELD] === entry.laneId);
+    if (index >= 0) pack.removeInput?.(index);
+    const lanes = storedPackLanes(pack);
+    nodeProperties(pack)[PACK_LANES_PROPERTY] = lanes.filter((lane) => lane.id !== entry.laneId);
   }
 
-  const numbered = numberDuplicateTypes(connected);
-  for (const entry of numbered) {
-    entry.input.name = entry.name;
-    entry.input.label = entry.name;
+  entries = packLaneEntries(pack);
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index];
+    const input = entry.input;
+    if (!input) continue;
+    input.name = entry.source ? entry.name : `lane_${entry.laneId}`;
+    input.label = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
+    input.type = entry.source?.type || EMPTY_TYPE;
   }
 
-  for (let i = (pack.inputs?.length || 0) - 2; i >= 0; i--) {
-    if (pack.inputs[i]?.link == null) pack.removeInput?.(i);
-  }
   const last = pack.inputs?.[pack.inputs.length - 1];
-  if (!last || last.link != null || last.type !== EMPTY_TYPE) {
+  if (!last || last[LANE_FIELD] || last.link != null || last.type !== EMPTY_TYPE) {
     const input = pack.addInput("wire", EMPTY_TYPE);
     if (input) input.label = text.addWire;
   } else {
@@ -376,11 +530,15 @@ function patchGraphToPrompt() {
           if (!isUnpack(unpack)) continue;
           const pack = findPackFromUnpack(unpack);
           if (!pack) continue;
-          const entries = connectedPackEntries(pack);
+          const entries = packLaneEntries(pack);
 
-          for (let outputIndex = 0; outputIndex < entries.length; outputIndex++) {
-            const source = entries[outputIndex]?.source;
+          for (const entry of entries) {
+            const source = entry?.source;
             if (!source) continue;
+            const outputIndex = (unpack.outputs || []).findIndex(
+              (output) => output?.[LANE_FIELD] === entry.laneId
+            );
+            if (outputIndex < 0) continue;
             for (const target of collectDownstreamTargets(graph, unpack, outputIndex)) {
               if (isPack(target.node) || isUnpack(target.node) || isReroute(target.node) || isGet(target.node) || isSet(target.node)) continue;
               const targetPrompt = prompt[String(target.nodeId)] || prompt[target.nodeId];
@@ -400,17 +558,24 @@ function patchGraphToPrompt() {
 }
 
 let bridgeTimer = null;
+let lastBridgeLocale = localeCode();
 function startBridge() {
   if (bridgeTimer) return;
   bridgeTimer = setInterval(() => {
+    const nextLocale = localeCode();
+    const localeChanged = nextLocale !== lastBridgeLocale;
+    if (localeChanged) lastBridgeLocale = nextLocale;
     for (const graph of allGraphs()) {
       for (const node of graph?._nodes || []) {
         if (isPack(node)) {
-          localizeFixedPorts(node);
+          localizeFixedPorts(node, localeChanged);
           const last = node.inputs?.[node.inputs.length - 1];
           if (last?.link == null && last?.type === EMPTY_TYPE) last.label = labels().addWire;
         }
-        if (isUnpack(node)) syncUnpack(node);
+        if (isUnpack(node)) {
+          localizeFixedPorts(node, localeChanged);
+          syncUnpack(node);
+        }
       }
     }
   }, 300);
@@ -465,7 +630,7 @@ app.registerExtension({
       const result = originalCreated?.apply(this, arguments);
       this.isVirtualNode = true;
       this.serialize_widgets = false;
-      localizeFixedPorts(this);
+      localizeFixedPorts(this, true);
       if (isPackDef) {
         const first = this.inputs?.[0];
         if (first) {
@@ -491,6 +656,9 @@ app.registerExtension({
         else queueMicrotask(syncAllUnpacks);
       } else if (type === LiteGraph.INPUT && index === 0) {
         queueMicrotask(() => syncUnpack(this, true));
+      } else if (type === LiteGraph.OUTPUT) {
+        const pack = findPackFromUnpack(this);
+        if (pack) queueMicrotask(() => refreshPackSlots(pack));
       }
       return result;
     };
@@ -511,7 +679,7 @@ app.registerExtension({
     const originalConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = originalConfigure?.apply(this, arguments);
-      localizeFixedPorts(this);
+      localizeFixedPorts(this, true);
       if (isPackDef) queueMicrotask(() => refreshPackSlots(this));
       else queueMicrotask(() => syncUnpack(this, true));
       return result;
