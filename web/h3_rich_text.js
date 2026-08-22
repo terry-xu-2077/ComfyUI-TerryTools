@@ -1,3 +1,5 @@
+import { app } from "../../scripts/app.js";
+
 const CARET = "\u200B";
 
 const SECTION_LABELS = {
@@ -32,7 +34,7 @@ export const H3_TOKEN_PATTERN = /<d>\[[^\]]+\][\s\S]*?<\/d>|<(?:Subject|Picture|
 
 export function h3LocaleIsZh() {
   try {
-    const value = globalThis.app?.ui?.settings?.getSettingValue?.("Comfy.Locale");
+    const value = app?.ui?.settings?.getSettingValue?.("Comfy.Locale");
     const fallback = document?.documentElement?.lang || navigator.language || "en";
     const locale = String(value || fallback).trim().toLowerCase().replaceAll("_", "-");
     return locale === "zh" || locale.startsWith("zh-");
@@ -91,17 +93,17 @@ function appendText(container, text) {
   });
 }
 
-function baseChip(raw, type) {
+function baseChip(raw, type, options = {}) {
   const chip = document.createElement("span");
-  chip.className = `terry-h3-chip terry-h3-type-${type}`;
+  chip.className = `terry-h3-chip terry-h3-type-${type}${options.extraChipClass ? ` ${options.extraChipClass}` : ""}`;
   chip.contentEditable = "false";
   chip.dataset.raw = raw;
   return chip;
 }
 
-function dialogueChip(raw, onChange) {
+function dialogueChip(raw, onChange, options = {}) {
   const match = String(raw || "").match(/^<d>\[([^\]]+)\]\s*([\s\S]*?)<\/d>$/i);
-  const chip = baseChip(raw, "dialogue");
+  const chip = baseChip(raw, "dialogue", options);
   chip.classList.add("terry-h3-dialogue", "terry-h3-dialogue-editor");
   if (!match) { chip.textContent = raw; return chip; }
   const language = document.createElement("span");
@@ -123,11 +125,11 @@ function dialogueChip(raw, onChange) {
   return chip;
 }
 
-function mediaChip(raw, type, resolveMedia) {
+function mediaChip(raw, type, resolveMedia, options = {}) {
   const match = raw.match(/^<(Picture|Video|Audio)\s+(\d+)>$/i);
   const index = Number(match?.[2]) || 1;
   const info = resolveMedia?.(type, index) || null;
-  const chip = baseChip(raw, type);
+  const chip = baseChip(raw, type, options);
   chip.classList.add("terry-h3-media-chip");
   if (info?.preview && type !== "audio") {
     const image = document.createElement("img");
@@ -151,9 +153,9 @@ function mediaChip(raw, type, resolveMedia) {
 export function createH3TokenNode(raw, options = {}) {
   const type = h3TokenType(raw);
   if (type === "plain") return document.createTextNode(raw);
-  if (type === "dialogue") return dialogueChip(raw, options.onChange);
-  if (["picture", "video", "audio"].includes(type)) return mediaChip(raw, type, options.resolveMedia);
-  const chip = baseChip(raw, type);
+  if (type === "dialogue") return dialogueChip(raw, options.onChange, options);
+  if (["picture", "video", "audio"].includes(type)) return mediaChip(raw, type, options.resolveMedia, options);
+  const chip = baseChip(raw, type, options);
   const label = document.createElement("span");
   label.textContent = h3VisibleLabel(raw);
   chip.append(label);

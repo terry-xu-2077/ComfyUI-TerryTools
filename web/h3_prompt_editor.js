@@ -1,6 +1,14 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 import { attachH3Menus } from "./h3_shared_menus.js";
+import {
+  bindH3TagInteractions,
+  insertH3RichTextAtSelection,
+  installH3RichTextStyles,
+  renderH3RawText,
+  renderH3RichText,
+  serializeH3RichText,
+} from "./h3_rich_text.js";
 
 const NODE_ID = "TerryH3PromptEditor";
 const LINKS_PROP = "terry_h3_virtual_media_links";
@@ -8,17 +16,6 @@ const VIEW_PROP = "terry_h3_view_mode";
 const VIEW_VISUAL = "visual";
 const VIEW_RAW = "raw";
 const MAX_MEDIA = 32;
-const CARET = "\u200B";
-
-const SECTIONS = new Set([
-  "subject_definitions", "summary", "retention_analysis",
-  "detailed_description", "overall_soundscape", "non_diegetic_music"
-]);
-const MARKERS = new Set([
-  "fully_preserved", "partially_preserved", "attribute_transfer", "weak_reference",
-  "fully_copy", "partially_copy", "reference"
-]);
-
 function isTarget(node) {
   if (!node) return false;
   return [node.comfyClass, node.type, node.constructor?.type, node.constructor?.comfyClass, node.constructor?.nodeData?.name]
@@ -321,87 +318,21 @@ function refreshEditorsSoon() {
   }, 0);
 }
 
-function makeChip(text, raw, className = "") {
-  const el = document.createElement("span");
-  el.className = `terry-h3-chip ${className}`;
-  el.contentEditable = "false";
-  el.dataset.raw = raw;
-  el.textContent = text;
-  return el;
-}
-
-function makeMediaChip(node, kind, index, raw) {
-  const option = mediaOptions(node).find((x) => x.kind === kind && x.index === index);
-  const el = makeChip("", raw, "terry-h3-media-chip");
-  if (option?.preview && kind !== "audio") {
-    const img = document.createElement("img");
-    img.src = option.preview;
-    img.alt = "";
-    img.draggable = false;
-    el.append(img);
-  } else {
-    const icon = document.createElement("span");
-    icon.className = "terry-h3-media-icon";
-    icon.textContent = kind === "audio" ? "♪" : kind === "video" ? "▶" : "▧";
-    el.append(icon);
-  }
-  const label = document.createElement("span");
-  label.textContent = option?.label || (kind === "picture" ? `Picture ${index}` : kind === "video" ? `Video ${index}` : `Audio ${index}`);
-  el.append(label);
-  el.title = option?.source || raw;
-  return el;
-}
-
-function appendText(container, text) {
-  String(text || "").split("\n").forEach((part, i) => {
-    if (i) container.append(document.createElement("br"));
-    if (part) container.append(document.createTextNode(part));
-  });
+function richOptions(node) {
+  return {
+    resolveMedia(kind, index) {
+      return mediaOptions(node).find((item) => item.kind === kind && item.index === Number(index)) || null;
+    },
+    onChange: () => syncFromEditor(node),
+  };
 }
 
 function renderVisual(node, raw) {
-  const editor = node.__terryH3Editor;
-  if (!editor) return;
-  editor.replaceChildren();
-  const rx = /<d>\[([^\]]+)\]\s*([\s\S]*?)<\/d>|<(Subject|Picture|Video|Audio)\s+(\d+)>|\[Shot\s+\d+\]|\(S\d+\)|<scenetrans>|<cutoff>|\b(?:fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)\b|\b\d{2}:\d{2}\.\d{3}\b|^[a-z_]+:/gmi;
-  let last = 0, m;
-  while ((m = rx.exec(raw))) {
-    appendText(editor, raw.slice(last, m.index));
-    const token = m[0];
-    if (m[1] != null) {
-      const d = makeChip(`[${m[1]}] ${m[2] || ""}`, token, "terry-h3-dialogue");
-      editor.append(d);
-    } else if (m[3]) {
-      const kind = m[3].toLowerCase();
-      if (kind === "picture" || kind === "video" || kind === "audio") editor.append(makeMediaChip(node, kind, Number(m[4]), token));
-      else editor.append(makeChip(`◇ Subject ${m[4]}`, token, "terry-h3-strong"));
-    } else if (/^\[Shot/i.test(token)) editor.append(makeChip(`🎬 ${token.slice(1, -1)}`, token, "terry-h3-strong"));
-    else if (/^\(S\d+\)$/i.test(token)) editor.append(makeChip(`🎙 ${token.slice(1, -1)}`, token));
-    else if (token === "<scenetrans>") editor.append(makeChip("↪ scene transition", token));
-    else if (token === "<cutoff>") editor.append(makeChip("✂ cutoff", token));
-    else if (MARKERS.has(token)) editor.append(makeChip(token.replaceAll("_", " "), token));
-    else if (/^\d{2}:\d{2}\.\d{3}$/.test(token)) editor.append(makeChip(`⏱ ${token}`, token));
-    else if (/^[a-z_]+:$/i.test(token) && SECTIONS.has(token.slice(0, -1).toLowerCase())) editor.append(makeChip(token.slice(0, -1).replaceAll("_", " "), token, "terry-h3-strong"));
-    else appendText(editor, token);
-    last = rx.lastIndex;
-  }
-  appendText(editor, raw.slice(last));
+  renderH3RichText(node.__terryH3Editor, raw, richOptions(node));
 }
 
 function editorRaw(editor) {
-  let out = "";
-  const walk = (node) => {
-    for (const child of node.childNodes || []) {
-      if (child.nodeType === Node.TEXT_NODE) out += String(child.nodeValue || "").replaceAll(CARET, "");
-      else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (child.dataset?.raw != null) out += child.dataset.raw;
-        else if (child.tagName === "BR") out += "\n";
-        else walk(child);
-      }
-    }
-  };
-  walk(editor);
-  return out;
+  return serializeH3RichText(editor);
 }
 
 function currentRaw(node) {
@@ -466,29 +397,11 @@ function refreshEditor(node, force = false) {
 }
 
 function appendRawEditor(editor, raw) {
-  editor.replaceChildren();
-  appendText(editor, raw);
+  renderH3RawText(editor, raw);
 }
 
 function parsePasted(node, editor, text) {
-  const sel = window.getSelection?.();
-  if (!sel?.rangeCount) return false;
-  const range = sel.getRangeAt(0);
-  if (!editor.contains(range.commonAncestorContainer)) return false;
-  range.deleteContents();
-  const frag = document.createDocumentFragment();
-  const rx = /<(Picture|Video|Audio)\s+(\d+)>/gi;
-  let last = 0, m;
-  while ((m = rx.exec(text))) {
-    appendText(frag, text.slice(last, m.index));
-    const kind = m[1].toLowerCase() === "picture" ? "picture" : m[1].toLowerCase();
-    frag.append(makeMediaChip(node, kind, Number(m[2]), m[0]));
-    last = rx.lastIndex;
-  }
-  appendText(frag, text.slice(last));
-  const marker = document.createTextNode(CARET); frag.append(marker); range.insertNode(frag);
-  const r = document.createRange(); r.setStart(marker, marker.textContent.length); r.collapse(true); sel.removeAllRanges(); sel.addRange(r);
-  return true;
+  return insertH3RichTextAtSelection(editor, text, richOptions(node));
 }
 
 function ensureEditor(node) {
@@ -537,6 +450,11 @@ function ensureEditor(node) {
     node,
     editor,
     mode: "prompt",
+    onChange: () => syncFromEditor(node),
+  });
+  bindH3TagInteractions(editor, {
+    node,
+    getSourceText: () => currentRaw(node),
     onChange: () => syncFromEditor(node),
   });
 
@@ -638,7 +556,7 @@ function installNode(nodeType, nodeData) {
 app.registerExtension({
   name: "TerryTools.H3PromptEditor",
   setup() {
-    installStyle(); patchCanvas(); patchGraphToPrompt();
+    installStyle(); installH3RichTextStyles(); patchCanvas(); patchGraphToPrompt();
     for (const delay of [0, 100, 400, 1000]) setTimeout(() => { patchCanvas(); patchGraphToPrompt(); refreshEditorsSoon(); }, delay);
   },
   beforeRegisterNodeDef(nodeType, nodeData) {
