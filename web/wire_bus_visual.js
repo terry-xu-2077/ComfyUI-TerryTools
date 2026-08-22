@@ -136,6 +136,10 @@ function nodeVisualCenterY(node) {
   return Number(node?.pos?.[1] || 0) + (Number(node?.size?.[1] || 0) - nodeTitleHeight()) * 0.5;
 }
 
+function isNodeCollapsed(node) {
+  return Boolean(node?.flags?.collapsed);
+}
+
 function centeredLanePosition(node, slot, count, isInput) {
   const spacing = Math.max(12, Number(globalThis.LiteGraph?.NODE_SLOT_HEIGHT) || 20);
   const index = Math.max(0, Number(slot) || 0);
@@ -429,6 +433,7 @@ function patchBusNode(node) {
   const originalInputPos = node.getInputPos;
   const originalOutputPos = node.getOutputPos;
   node.getInputPos = function (slot) {
+    if (isNodeCollapsed(this)) return originalInputPos?.apply?.(this, arguments);
     if (nodeType(this) === UNPACK_TYPE && Number(slot) === 0) {
       return [Number(this.pos?.[0] || 0), nodeVisualCenterY(this)];
     }
@@ -438,6 +443,7 @@ function patchBusNode(node) {
     return originalInputPos?.apply?.(this, arguments);
   };
   node.getOutputPos = function (slot) {
+    if (isNodeCollapsed(this)) return originalOutputPos?.apply?.(this, arguments);
     if (nodeType(this) === PACK_TYPE && Number(slot) === 0) {
       return [
         Number(this.pos?.[0] || 0) + Number(this.size?.[0] || 0),
@@ -453,6 +459,7 @@ function patchBusNode(node) {
   const originalForeground = node.onDrawForeground;
   node.onDrawForeground = function (ctx) {
     const result = originalForeground?.apply?.(this, arguments);
+    if (isNodeCollapsed(this)) return result;
     try {
       if (nodeType(this) === PACK_TYPE) drawCapsulePort(ctx, this, true, 0);
       else if (nodeType(this) === UNPACK_TYPE) drawCapsulePort(ctx, this, false, 0);
