@@ -1,0 +1,10 @@
+[project]
+name = "comfyui-terry-tools"
+version = "0.3.1"
+description = "Terry's personal ComfyUI tools."
+requires-python = ">=3.10"
+
+[tool.comfy]
+PublisherId = "terry"
+DisplayName = "TerryTools"
+Icon = ""

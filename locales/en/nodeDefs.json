@@ -1,0 +1,66 @@
+{
+  "EnhancedFileSave": {
+    "display_name": "Terry Enhanced File Save",
+    "description": "Save VIDEO / STRING / IMAGE / AUDIO from one input, with exact filenames, %date% timestamps and optional sequence numbers.",
+    "inputs": {
+      "data": {"name": "Content", "tooltip": "Supports VIDEO / STRING / IMAGE / AUDIO."},
+      "filename_template": {"name": "Filename", "tooltip": "May include subfolders such as project/shot_%date%. %date% is replaced using the timestamp options below."},
+      "use_timestamp": {"name": "Enable %date% timestamp"},
+      "ts_year": {"name": "Timestamp: Year"},
+      "ts_date": {"name": "Timestamp: Date"},
+      "ts_hour": {"name": "Timestamp: Hour"},
+      "ts_minute_second": {"name": "Timestamp: Minute/Second"},
+      "append_sequence": {"name": "Append sequence number", "tooltip": "When disabled, no automatic ComfyUI counter is appended. Existing targets are overwritten."},
+      "sequence_start": {"name": "Sequence start"},
+      "sequence_padding": {"name": "Sequence digits"},
+      "image_compress_level": {"name": "PNG compression level", "tooltip": "Uses ComfyUI ImageSaveHelper."},
+      "audio_format": {"name": "Audio format"},
+      "audio_quality": {"name": "Audio quality"},
+      "video_format": {"name": "Video container", "tooltip": "Uses the current ComfyUI native SaveVideo container options."},
+      "video_codec": {"name": "Video codec", "tooltip": "Uses the current ComfyUI native SaveVideo codec options."},
+      "video_encoding": {"name": "H.264 encoding mode"},
+      "video_crf": {"name": "H.264 CRF"},
+      "text_extension": {"name": "Text extension"},
+      "text_custom_extension": {"name": "Custom text extension"}
+    },
+    "outputs": {"0": {"name": "Original content"}}
+  },
+  "TerryVideoCompare": {
+    "display_name": "Terry Video Compare",
+    "description": "A/B synchronized video comparison preview. Drag the center divider to inspect differences; the bottom timeline controls both videos together.",
+    "inputs": {"a": {"name": "A"}, "b": {"name": "B"}},
+    "outputs": {"0": {"name": "A"}, "1": {"name": "B"}}
+  },
+  "TerryH3PromptEditor": {
+    "display_name": "Terry H3 Prompt Editor",
+    "description": "Visual MiniMax H3 prompt editor with dynamic image, video and audio references. Use @ for media and / for H3 syntax commands; output is always standard H3 STRING text.",
+    "inputs": {
+      "prompt": {"name": "H3 Source"},
+      "visual_preview": {"name": "Visual Preview", "tooltip": "On: visualize tags. Off: show raw H3 text."},
+      "asset": {"name": "Reference", "tooltip": "Connect IMAGE / VIDEO / AUDIO references."}
+    },
+    "outputs": {"0": {"name": "H3 Prompt"}}
+  },
+  "TerryH3ShotTimeline": {
+    "display_name": "Terry H3 Prompt Editor (Timeline)",
+    "description": "Timeline mode of Terry H3 Prompt Editor with multi-reference assets, tagged shot descriptions, shot ordering and duration editing, plus optional soundscape/music fields.",
+    "inputs": {
+      "compiled_prompt": {"name": "H3 Timeline Source"},
+      "duration": {"name": "Total Duration"},
+      "timeline_state": {"name": "Timeline State"},
+      "asset": {"name": "Reference", "tooltip": "Connect IMAGE / VIDEO / AUDIO references."}
+    },
+    "outputs": {"0": {"name": "H3 Prompt"}}
+  },
+  "TerryWireBusPack": {
+    "display_name": "Terry Wire Bus Pack",
+    "description": "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
+    "inputs": {"wire": {"name": "Add Wire"}},
+    "outputs": {"0": {"name": "Bus"}}
+  },
+  "TerryWireBusUnpack": {
+    "display_name": "Terry Wire Bus Unpack",
+    "description": "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
+    "inputs": {"bus": {"name": "Bus"}}
+  }
+}
