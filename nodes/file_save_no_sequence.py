@@ -15,7 +15,7 @@ class FileSave(EnhancedFileSave):
             description=(
                 "按输入的精确文件名保存 VIDEO / STRING / IMAGE / AUDIO。"
                 "可选择在文件名尾部添加序号；关闭时目标文件已存在则直接覆盖。"
-                "日期等命名内容可由上游字符串节点生成后接入文件名。"
+                "文件名既可在节点内填写，也可由外部 STRING 输入覆盖。"
             ),
             is_output_node=True,
             inputs=[
@@ -96,6 +96,13 @@ class FileSave(EnhancedFileSave):
                     default=True,
                     tooltip="开启时在文件名尾部添加序号；关闭时同名文件直接覆盖。",
                 ),
+                io.String.Input(
+                    "filename_input",
+                    display_name="文件名",
+                    optional=True,
+                    force_input=True,
+                    tooltip="可连接外部 STRING；连接后优先使用外部文件名。",
+                ),
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
             outputs=[
@@ -120,7 +127,9 @@ class FileSave(EnhancedFileSave):
         text_custom_extension,
         filename,
         append_sequence,
+        filename_input=None,
     ) -> io.NodeOutput:
+        effective_filename = filename_input if filename_input is not None else filename
         return super().execute(
             data=data,
             image_compress_level=image_compress_level,
@@ -132,7 +141,7 @@ class FileSave(EnhancedFileSave):
             video_crf=video_crf,
             text_extension=text_extension,
             text_custom_extension=text_custom_extension,
-            filename_template=filename,
+            filename_template=effective_filename,
             date_format="none",
             append_sequence=append_sequence,
             sequence_start=1,
