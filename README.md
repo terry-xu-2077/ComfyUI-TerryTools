@@ -22,7 +22,7 @@ https://github.com/terry-xu-2077/ComfyUI-TerryTools
 
 ## 节点
 
-### Terry 增强文件保存
+### Terry 文件保存
 
 分类：`TerryTools/Save`
 
@@ -33,34 +33,33 @@ https://github.com/terry-xu-2077/ComfyUI-TerryTools
 - 自动识别视频、图片、音频、文本类型。
 - 根据输入类型只显示当前需要的保存参数。
 - 图片、音频、视频尽量复用 ComfyUI 原生保存与编码逻辑。
-- 支持精确文件名和子目录，例如：
-
-```text
-project/shot_%date%
-```
-
-- `%date%` 支持多种日期格式，例如：
-
-```text
-YYYYMMDD_HHmmss
-YYYY-MM-DD_HH-mm-ss
-YYYY_MM_DD_HH_mm_ss
-YYYYMMDD
-YYYY-MM-DD
-```
-
-- 可关闭日期。
-- 可选尾部序列号，并可设置起始值和位数。
-- 关闭序列号后不会自动追加 ComfyUI 默认编号。
-- 同名目标文件存在时直接覆盖。
+- 支持精确文件名和子目录，例如 `project/shot_01`。
+- 文件名既可在节点内填写，也可由外部 STRING 输入覆盖。
+- 默认在文件名尾部添加 5 位序号，也可关闭序号直接覆盖同名文件。
 - 文本支持多种扩展名及自定义扩展名。
+- 参数使用圆角 DOM 面板显示，同时兼容普通节点模式与 Nodes 2.0。
 
 使用方法：
 
 1. 将 VIDEO / IMAGE / AUDIO / STRING 输出连接到节点的“内容”输入。
 2. 节点会自动显示对应类型的参数。
-3. 在“文件名”分组中设置文件名模板、日期格式和序列号。
-4. 执行工作流即可保存到 ComfyUI 的 `output` 目录。
+3. 在“文件名”中设置保存名称，或将外部 STRING 接入“文件名”插槽。
+4. 根据需要开启或关闭“尾部添加序号”。
+5. 执行工作流即可保存到 ComfyUI 的 `output` 目录。
+
+---
+
+### Terry 日期格式化
+
+分类：`TerryTools/Utils`
+
+用于把当前日期和时间写入文本模板，方便直接连接到“文件名”等 STRING 输入。
+
+- 默认文本模板：`%date%`
+- 默认格式：`YYYYMMDDHHmmss`
+- 支持直接修改格式，例如 `YYYY-MM-DD_HH-mm-ss`
+- `YYYY` 年、`MM` 月、`DD` 日、`HH` 时、`mm` 分、`ss` 秒
+- 仅输出“格式化文本”
 
 ---
 
