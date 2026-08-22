@@ -17,13 +17,15 @@ const MEDIA_LABELS = [
   "文本后缀", "Text Extension", "自定义文本后缀", "Custom Text Extension",
 ];
 const FILE_LABELS = ["文件名", "Filename"];
-const BOX_STROKE = "rgba(180,180,180,.34)";
+const BOX_STROKE = "rgba(190,190,190,.38)";
 const BOX_LINE_WIDTH = 2;
-const DOM_PAD = 14;
+const BOX_RADIUS = 10;
+const BOX_PAD_Y = 9;
 
 function getWidget(node, name) {
   return node.widgets?.find((w) => w?.name === name) || null;
 }
+
 function installHideAdapter(widget) {
   if (!widget || widget.__terryNoSeqHideAdapter) return;
   widget.__terryNoSeqHideAdapter = true;
@@ -33,6 +35,7 @@ function installHideAdapter(widget) {
     return original?.(width) || [width ?? 0, 20];
   };
 }
+
 function setWidgetHidden(node, name, hidden) {
   const widget = getWidget(node, name);
   if (!widget) return;
@@ -42,17 +45,21 @@ function setWidgetHidden(node, name, hidden) {
   widget.options.hidden = hidden;
   if (widget.element?.style) widget.element.style.display = hidden ? "none" : "";
 }
+
 function getGraphLink(graph, linkId) {
   if (!graph || linkId == null) return null;
   return graph.links?.[linkId] || graph._links?.get?.(linkId) || graph.links?.[String(linkId)] || null;
 }
+
 function normalizeType(type) {
   const value = String(type || "").toUpperCase();
   return value === "TEXT" ? "STRING" : value;
 }
+
 function nodeType(node) {
   return String(node?.type || node?.constructor?.type || node?.comfyClass || node?.constructor?.comfyClass || "").toLowerCase();
 }
+
 function resolveOriginType(graph, linkId, seen = new Set()) {
   if (linkId == null || seen.has(linkId)) return null;
   seen.add(linkId);
@@ -70,11 +77,13 @@ function resolveOriginType(graph, linkId, seen = new Set()) {
   type = normalizeType(output?.type);
   return TYPE_WIDGETS[type] ? type : null;
 }
+
 function connectedType(node) {
   const input = node.inputs?.find((item) => item?.name === "data");
   if (!input || input.link == null) return null;
   return resolveOriginType(node.graph || app.graph, input.link);
 }
+
 function resizeToContent(node) {
   try {
     const measured = node.computeSize?.();
@@ -91,28 +100,34 @@ function widgetY(widget) {
   }
   return null;
 }
+
 function classicBounds(node, names) {
-  const ys = [];
+  const rows = [];
   for (const name of names) {
     const widget = getWidget(node, name);
     if (!widget || widget.hidden || widget.options?.hidden) continue;
     const y = widgetY(widget);
-    if (y != null) ys.push(y);
+    if (y == null) continue;
+    let height = 20;
+    try {
+      const size = widget.computeSize?.(Math.max(0, (node.size?.[0] || 0) - 24));
+      const h = Number(size?.[1]);
+      if (Number.isFinite(h) && h > 8 && h < 80) height = h;
+    } catch {}
+    rows.push({ y, height });
   }
-  if (!ys.length) return null;
-  const sorted = ys.sort((a, b) => a - b);
-  let step = 28;
-  if (sorted.length > 1) {
-    const gaps = sorted.slice(1).map((v, i) => v - sorted[i]).filter((v) => v > 8 && v < 80);
-    if (gaps.length) step = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-  }
-  const halfCell = Math.max(13, Math.min(18, step / 2));
-  const pad = 5;
-  return {
-    top: sorted[0] - halfCell - pad,
-    bottom: sorted[sorted.length - 1] + halfCell + pad,
-  };
+  if (!rows.length) return null;
+  rows.sort((a, b) => a.y - b.y);
+
+  // LiteGraph last_y is the row's top edge. Use the actual first top and last
+  // bottom, then add the same padding above and below so the controls are
+  // visually centered inside the group box.
+  const firstTop = rows[0].y;
+  const last = rows[rows.length - 1];
+  const lastBottom = last.y + last.height;
+  return { top: firstTop - BOX_PAD_Y, bottom: lastBottom + BOX_PAD_Y };
 }
+
 function roundedRectPath(ctx, x, y, w, h, r) {
   const radius = Math.max(0, Math.min(r, w / 2, h / 2));
   if (typeof ctx.roundRect === "function") {
@@ -132,17 +147,19 @@ function roundedRectPath(ctx, x, y, w, h, r) {
   ctx.quadraticCurveTo(x, y, x + radius, y);
   ctx.closePath();
 }
+
 function drawBox(node, ctx, bounds) {
   if (!bounds || !ctx) return;
   const width = Number(node.size?.[0]) || 0;
   if (width <= 40 || bounds.bottom <= bounds.top) return;
   ctx.save();
-  roundedRectPath(ctx, 10, bounds.top, width - 20, bounds.bottom - bounds.top, 10);
+  roundedRectPath(ctx, 10, bounds.top, width - 20, bounds.bottom - bounds.top, BOX_RADIUS);
   ctx.strokeStyle = BOX_STROKE;
   ctx.lineWidth = BOX_LINE_WIDTH;
   ctx.stroke();
   ctx.restore();
 }
+
 function drawParameterGroups(node, ctx) {
   const type = connectedType(node);
   let media = type ? classicBounds(node, TYPE_WIDGETS[type]) : null;
@@ -159,93 +176,99 @@ function drawParameterGroups(node, ctx) {
 function normalizedText(el) {
   return String(el?.textContent || "").replace(/\s+/g, " ").trim();
 }
+
 function isTargetRoot(root) {
   const text = normalizedText(root);
   return text.includes("Terry 文件保存（无序号）") || text.includes("Terry File Save (No Sequence)");
 }
+
 function findNodeRoots() {
-  const roots = [];
-  for (const el of document.querySelectorAll("[data-node-id]")) if (isTargetRoot(el)) roots.push(el);
-  return roots;
+  return [...document.querySelectorAll("[data-node-id]")].filter(isTargetRoot);
 }
-function labelRect(root, label) {
+
+function labelRow(root, label) {
   const rootRect = root.getBoundingClientRect();
   let best = null;
   for (const el of root.querySelectorAll("*")) {
     if (normalizedText(el) !== label) continue;
     let row = el;
     for (let i = 0; i < 5 && row?.parentElement && row.parentElement !== root; i++) {
-      const pr = row.parentElement.getBoundingClientRect();
-      if (pr.width >= rootRect.width * 0.55 && pr.height >= 22 && pr.height <= 72) row = row.parentElement;
+      const parent = row.parentElement;
+      const pr = parent.getBoundingClientRect();
+      if (pr.width >= rootRect.width * 0.55 && pr.height >= 22 && pr.height <= 72) row = parent;
       else break;
     }
-    const r = row.getBoundingClientRect();
-    if (!best || r.width > best.width) best = r;
+    const rect = row.getBoundingClientRect();
+    if (!best || rect.width > best.getBoundingClientRect().width) best = row;
   }
   return best;
 }
-function screenBounds(root, labels) {
+
+function localBounds(root, labels) {
+  const rootRect = root.getBoundingClientRect();
   const rects = [];
+  const seen = new Set();
   for (const label of labels) {
-    const r = labelRect(root, label);
-    if (r && r.width > 0 && r.height > 0) rects.push(r);
+    const row = labelRow(root, label);
+    if (!row || seen.has(row)) continue;
+    seen.add(row);
+    const r = row.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) rects.push(r);
   }
   if (!rects.length) return null;
   return {
-    top: Math.min(...rects.map((r) => r.top)) - DOM_PAD,
-    bottom: Math.max(...rects.map((r) => r.bottom)) + DOM_PAD,
+    top: Math.min(...rects.map((r) => r.top)) - rootRect.top - BOX_PAD_Y,
+    bottom: Math.max(...rects.map((r) => r.bottom)) - rootRect.top + BOX_PAD_Y,
   };
 }
-function ensureFixedOverlay(key) {
-  const id = `terry-no-seq-fixed-${key}`;
-  let el = document.getElementById(id);
+
+function ensureLocalOverlay(root, key) {
+  let el = root.querySelector(`:scope > .terry-no-seq-group-${key}`);
   if (!el) {
     el = document.createElement("div");
-    el.id = id;
+    el.className = `terry-no-seq-group-${key}`;
     Object.assign(el.style, {
-      position: "fixed",
+      position: "absolute",
+      left: "10px",
+      right: "10px",
       border: `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`,
-      borderRadius: "10px",
+      borderRadius: `${BOX_RADIUS}px`,
       pointerEvents: "none",
       boxSizing: "border-box",
-      zIndex: "9999",
+      zIndex: "2",
       display: "none",
     });
-    document.body.appendChild(el);
+    root.appendChild(el);
   }
   return el;
 }
+
 function updateNodes2Boxes() {
-  const roots = findNodeRoots();
-  const active = [];
-  roots.forEach((root, index) => {
-    const rootRect = root.getBoundingClientRect();
-    let media = screenBounds(root, MEDIA_LABELS);
-    let file = screenBounds(root, FILE_LABELS);
+  for (const root of findNodeRoots()) {
+    // Nodes 2.0 node roots are positioned elements. Keeping the overlay inside
+    // the node means CSS transforms move both together with zero tracking lag.
+    const mediaRaw = localBounds(root, MEDIA_LABELS);
+    const fileRaw = localBounds(root, FILE_LABELS);
+    let media = mediaRaw;
+    let file = fileRaw;
     if (media && file && media.bottom > file.top - 8) {
       const middle = (media.bottom + file.top) / 2;
       media = { ...media, bottom: middle - 4 };
       file = { ...file, top: middle + 4 };
     }
     for (const [kind, bounds] of [["media", media], ["file", file]]) {
-      const el = ensureFixedOverlay(`${kind}-${index}`);
-      active.push(el);
-      el.style.border = `${BOX_LINE_WIDTH}px solid ${BOX_STROKE}`;
+      const el = ensureLocalOverlay(root, kind);
       if (!bounds || bounds.bottom <= bounds.top) {
         el.style.display = "none";
         continue;
       }
       el.style.display = "block";
-      el.style.left = `${rootRect.left + 10}px`;
-      el.style.width = `${Math.max(0, rootRect.width - 20)}px`;
       el.style.top = `${bounds.top}px`;
       el.style.height = `${bounds.bottom - bounds.top}px`;
     }
-  });
-  for (const el of document.querySelectorAll('[id^="terry-no-seq-fixed-"]')) {
-    if (!active.includes(el)) el.style.display = "none";
   }
 }
+
 let domQueued = false;
 function queueNodes2Refresh() {
   if (domQueued) return;
@@ -271,6 +294,7 @@ function applyDynamicPanel(node) {
   resizeToContent(node);
   queueNodes2Refresh();
 }
+
 function hookWidget(node, name) {
   const widget = getWidget(node, name);
   if (!widget || widget.__terryNoSeqDynamicPanelHooked) return;
@@ -282,6 +306,7 @@ function hookWidget(node, name) {
     return result;
   };
 }
+
 function schedulePanelRefresh(node) {
   queueMicrotask(() => applyDynamicPanel(node));
   requestAnimationFrame(() => applyDynamicPanel(node));
@@ -289,19 +314,20 @@ function schedulePanelRefresh(node) {
   setTimeout(() => applyDynamicPanel(node), 180);
   setTimeout(queueNodes2Refresh, 300);
 }
+
 function initNode(node) {
   for (const widget of node.widgets || []) installHideAdapter(widget);
   for (const name of ["audio_format", "video_codec", "video_encoding", "text_extension"]) hookWidget(node, name);
   applyDynamicPanel(node);
   schedulePanelRefresh(node);
 }
+
 let observer = null;
 function installObserver() {
   if (observer || !document.body) return;
   observer = new MutationObserver(queueNodes2Refresh);
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+  observer.observe(document.body, { childList: true, subtree: true });
   window.addEventListener("resize", queueNodes2Refresh, { passive: true });
-  window.addEventListener("scroll", queueNodes2Refresh, { passive: true, capture: true });
 }
 
 app.registerExtension({
