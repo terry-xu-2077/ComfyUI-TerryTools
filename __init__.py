@@ -3,7 +3,6 @@ from typing_extensions import override
 
 from .nodes import (
     DateFormatter,
-    EnhancedFileSave,
     FileSave,
     H3PromptEditor,
     H3ShotTimeline,
@@ -24,7 +23,6 @@ class TerryToolsExtension(ComfyExtension):
     @override
     async def get_node_list(self) -> list[type[io.ComfyNode]]:
         return [
-            # EnhancedFileSave,  # 暂时保留源码但不注册，待 Terry 文件保存测试稳定后再决定是否移除。
             FileSave,
             DateFormatter,
             VideoCompare,
