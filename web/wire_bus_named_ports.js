@@ -2,15 +2,18 @@ import { app } from "../../scripts/app.js";
 
 const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
+const WIRELESS_PACK_TYPE = "TerryWirelessBusPack";
+const WIRELESS_UNPACK_TYPE = "TerryWirelessBusUnpack";
 const EMPTY_TYPE = "*";
 const LANE_FIELD = "terry_lane_id";
+const WIRELESS_CHANNEL_PROPERTY = "terry_wireless_bus_channel";
 
 function nodeType(node) {
   return String(node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || "");
 }
 
-function isPack(node) { return nodeType(node) === PACK_TYPE; }
-function isUnpack(node) { return nodeType(node) === UNPACK_TYPE; }
+function isPack(node) { return [PACK_TYPE, WIRELESS_PACK_TYPE].includes(nodeType(node)); }
+function isUnpack(node) { return [UNPACK_TYPE, WIRELESS_UNPACK_TYPE].includes(nodeType(node)); }
 function isReroute(node) {
   const type = nodeType(node).toLowerCase();
   return type === "reroute" || type.endsWith("reroute");
@@ -34,6 +37,11 @@ function graphLink(graph, id) {
 
 function variableName(node) {
   return node?.widgets?.[0]?.value ?? node?.properties?.name ?? null;
+}
+
+function wirelessChannelName(node) {
+  const widget = (node?.widgets || []).find((item) => item?.terryWirelessChannel === true);
+  return String(widget?.value ?? node?.properties?.[WIRELESS_CHANNEL_PROPERTY] ?? "").trim();
 }
 
 function findSetter(getNode) {
@@ -65,6 +73,12 @@ function resolveSource(graph, linkId, seen = new Set()) {
   if (isGet(source)) {
     const setter = findSetter(source);
     if (setter?.inputs?.[0]?.link != null) return resolveSource(setter.graph || graph, setter.inputs[0].link, seen);
+  }
+  if (isUnpack(source)) {
+    const pack = findPackForUnpack(source);
+    const laneId = source.outputs?.[slot]?.[LANE_FIELD];
+    const input = (pack?.inputs || []).find((item) => item?.[LANE_FIELD] === laneId);
+    return input?.link == null ? null : resolveSource(pack.graph || graph, input.link, seen);
   }
   return { node: source, slot, output: source.outputs?.[slot] || null };
 }
@@ -117,8 +131,19 @@ function namedEntries(pack) {
 }
 
 function findPackForUnpack(unpack) {
+  if (nodeType(unpack) === WIRELESS_UNPACK_TYPE) {
+    const name = wirelessChannelName(unpack);
+    if (!name) return null;
+    for (const graph of [unpack.graph, app.graph]) {
+      const pack = (graph?._nodes || []).find((node) =>
+        nodeType(node) === WIRELESS_PACK_TYPE && wirelessChannelName(node) === name
+      );
+      if (pack) return pack;
+    }
+    return null;
+  }
   const source = resolveSource(unpack?.graph, unpack?.inputs?.[0]?.link);
-  return source && isPack(source.node) ? source.node : null;
+  return source && nodeType(source.node) === PACK_TYPE ? source.node : null;
 }
 
 function applyNames(pack) {
@@ -157,7 +182,7 @@ app.registerExtension({
   name: "TerryTools.WireBusNamedPorts",
 
   beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData?.name !== PACK_TYPE && nodeData?.name !== UNPACK_TYPE) return;
+    if (![PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(nodeData?.name)) return;
 
     const oldConnections = nodeType.prototype.onConnectionsChange;
     nodeType.prototype.onConnectionsChange = function () {

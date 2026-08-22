@@ -3,16 +3,20 @@ import { app } from "../../scripts/app.js";
 // Stable workflow ids. Never localize these.
 const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
+const WIRELESS_PACK_TYPE = "TerryWirelessBusPack";
+const WIRELESS_UNPACK_TYPE = "TerryWirelessBusUnpack";
 const BUS_TYPE = "TERRY_WIRE_BUS";
 const EMPTY_TYPE = "*";
 const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
+const WIRELESS_CHANNEL_PROPERTY = "terry_wireless_bus_channel";
 const LANE_FIELD = "terry_lane_id";
 const COMPACT_NODE_WIDTH = 112;
 const COMPACT_NODE_MIN_HEIGHT = 160;
 const COMPACT_NODE_HEADER_HEIGHT = 80;
 const COMPACT_NODE_LANE_HEIGHT = 26;
 const COMPACT_NODE_SLOT_PADDING = 56;
+const WIRELESS_WIDGET_HEIGHT = 38;
 
 let laneSequence = 0;
 
@@ -43,11 +47,18 @@ function labels() {
     return {
       packTitle: "总线入",
       unpackTitle: "总线出",
+      wirelessPackTitle: "无线总线入",
+      wirelessUnpackTitle: "无线总线出",
       packDescription: "将任意数量、任意类型的连接汇总为一根虚拟总线，支持 KJNodes Get/Set。",
       unpackDescription: "从虚拟总线自动恢复原始连接的数量、类型和顺序，支持 KJNodes Get/Set。",
+      wirelessPackDescription: "将多路连接发布到独立的 Terry 无线总线频道，不与 KJNodes Get/Set 混用。",
+      wirelessUnpackDescription: "选择 Terry 无线总线频道，自动恢复对应的多路连接。",
       category: "TerryTools/线束整理",
       addWire: "添加线束",
       bus: "总线",
+      channelName: "名称",
+      channelSelect: "选择总线",
+      defaultChannel: "总线",
       input: "输入",
       output: "输出",
     };
@@ -55,11 +66,18 @@ function labels() {
   return {
     packTitle: "Bus In",
     unpackTitle: "Bus Out",
+    wirelessPackTitle: "Wireless Bus In",
+    wirelessUnpackTitle: "Wireless Bus Out",
     packDescription: "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
     unpackDescription: "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
+    wirelessPackDescription: "Publish multiple connections to an independent Terry wireless bus channel.",
+    wirelessUnpackDescription: "Select a Terry wireless bus channel and restore all of its connections.",
     category: "TerryTools/Wire Management",
     addWire: "Add wire",
     bus: "bus",
+    channelName: "Name",
+    channelSelect: "Select Bus",
+    defaultChannel: "Bus",
     input: "Input",
     output: "Output",
   };
@@ -71,8 +89,13 @@ function nodeType(node) {
   );
 }
 
-function isPack(node) { return nodeType(node) === PACK_TYPE; }
-function isUnpack(node) { return nodeType(node) === UNPACK_TYPE; }
+function isWiredPack(node) { return nodeType(node) === PACK_TYPE; }
+function isWiredUnpack(node) { return nodeType(node) === UNPACK_TYPE; }
+function isWirelessPack(node) { return nodeType(node) === WIRELESS_PACK_TYPE; }
+function isWirelessUnpack(node) { return nodeType(node) === WIRELESS_UNPACK_TYPE; }
+function isWireless(node) { return isWirelessPack(node) || isWirelessUnpack(node); }
+function isPack(node) { return isWiredPack(node) || isWirelessPack(node); }
+function isUnpack(node) { return isWiredUnpack(node) || isWirelessUnpack(node); }
 function isReroute(node) {
   const type = nodeType(node).toLowerCase();
   return type === "reroute" || type.endsWith("reroute");
@@ -139,6 +162,118 @@ function graphAncestors(graph) {
   return chain;
 }
 
+function wirelessChannelWidget(node) {
+  return (node?.widgets || []).find((widget) => widget?.terryWirelessChannel === true) || null;
+}
+
+function wirelessChannelName(node) {
+  const widgetValue = wirelessChannelWidget(node)?.value;
+  return String(widgetValue ?? node?.properties?.[WIRELESS_CHANNEL_PROPERTY] ?? "").trim();
+}
+
+function wirelessPacksInScope(graph) {
+  const packs = [];
+  for (const candidateGraph of graphAncestors(graph || app.graph)) {
+    for (const node of candidateGraph?._nodes || []) {
+      if (isWirelessPack(node) && wirelessChannelName(node)) packs.push(node);
+    }
+  }
+  return packs;
+}
+
+function wirelessChannelNames(graph) {
+  return [...new Set(wirelessPacksInScope(graph).map(wirelessChannelName))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function uniqueWirelessChannelName(pack, requested) {
+  const base = String(requested || "").trim() || `${labels().defaultChannel} 1`;
+  const names = new Set(
+    wirelessPacksInScope(pack?.graph || app.graph)
+      .filter((node) => node !== pack)
+      .map(wirelessChannelName)
+  );
+  if (!names.has(base)) return base;
+  let suffix = 2;
+  while (names.has(`${base} ${suffix}`)) suffix += 1;
+  return `${base} ${suffix}`;
+}
+
+function refreshWirelessCombo(unpack) {
+  const widget = wirelessChannelWidget(unpack);
+  if (!widget) return;
+  const descriptor = Object.getOwnPropertyDescriptor(widget.options || {}, "values");
+  const options = {};
+  Object.defineProperty(options, "values", descriptor || {
+    get: () => wirelessChannelNames(unpack.graph || app.graph),
+    enumerable: true,
+    configurable: true,
+  });
+  widget.options = options;
+  const index = unpack.widgets?.indexOf(widget) ?? -1;
+  if (index >= 0) {
+    unpack.widgets.splice(index, 1);
+    unpack.widgets.splice(index, 0, widget);
+  }
+}
+
+function refreshWirelessChannels(previousName = "", nextName = "") {
+  for (const graph of allGraphs()) {
+    for (const node of graph?._nodes || []) {
+      if (!isWirelessUnpack(node)) continue;
+      const widget = wirelessChannelWidget(node);
+      if (previousName && wirelessChannelName(node) === previousName) {
+        if (widget) widget.value = nextName;
+        nodeProperties(node)[WIRELESS_CHANNEL_PROPERTY] = nextName;
+      }
+      refreshWirelessCombo(node);
+      syncUnpack(node, true);
+    }
+  }
+}
+
+function setWirelessChannel(node, requested, notify = true) {
+  const properties = nodeProperties(node);
+  const previousName = String(properties[WIRELESS_CHANNEL_PROPERTY] || "").trim();
+  const nextName = isWirelessPack(node)
+    ? uniqueWirelessChannelName(node, requested)
+    : String(requested || "").trim();
+  const widget = wirelessChannelWidget(node);
+  if (widget) widget.value = nextName;
+  properties[WIRELESS_CHANNEL_PROPERTY] = nextName;
+  if (notify && !app.configuringGraph) {
+    if (isWirelessPack(node)) refreshWirelessChannels(previousName, nextName);
+    else syncUnpack(node, true);
+  }
+  return nextName;
+}
+
+function initializeWirelessWidget(node) {
+  if (!isWireless(node) || wirelessChannelWidget(node)) return;
+  const text = labels();
+  const pack = isWirelessPack(node);
+  const initial = node.properties?.[WIRELESS_CHANNEL_PROPERTY] || (pack ? `${text.defaultChannel} 1` : "");
+  const options = {};
+  if (!pack) {
+    Object.defineProperty(options, "values", {
+      get: () => wirelessChannelNames(node.graph || app.graph),
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  const widget = node.addWidget?.(
+    pack ? "text" : "combo",
+    pack ? text.channelName : text.channelSelect,
+    String(initial),
+    (value) => setWirelessChannel(node, value ?? wirelessChannelWidget(node)?.value),
+    options
+  );
+  if (!widget) return;
+  widget.terryWirelessChannel = true;
+  widget.serialize = true;
+  setWirelessChannel(node, initial, false);
+}
+
 function variableName(node) {
   return node?.widgets?.[0]?.value ?? node?.properties?.name ?? null;
 }
@@ -182,6 +317,13 @@ function resolveUpstream(graph, linkId, seen = new Set()) {
     return resolveUpstream(setter.graph, setterLink, seen);
   }
 
+  if (isUnpack(node)) {
+    const pack = findPackFromUnpack(node);
+    const laneId = node.outputs?.[slot]?.[LANE_FIELD];
+    const input = pack && laneId ? laneInput(pack, laneId) : null;
+    return input?.link == null ? null : resolveUpstream(pack.graph, input.link, seen);
+  }
+
   const output = node.outputs?.[slot];
   return {
     node,
@@ -215,10 +357,17 @@ function collectDownstreamTargets(graph, node, outputSlot, seenNodes = new Set()
 }
 
 function findPackFromUnpack(unpack) {
+  if (isWirelessUnpack(unpack)) {
+    const name = wirelessChannelName(unpack);
+    if (!name) return null;
+    return wirelessPacksInScope(unpack.graph || app.graph)
+      .find((node) => wirelessChannelName(node) === name) || null;
+  }
+  if (!isWiredUnpack(unpack)) return null;
   const linkId = unpack?.inputs?.[0]?.link;
   if (!unpack?.graph || linkId == null) return null;
   const upstream = resolveUpstream(unpack.graph, linkId);
-  return upstream && isPack(upstream.node) ? upstream.node : null;
+  return upstream && isWiredPack(upstream.node) ? upstream.node : null;
 }
 
 function nodeProperties(node) {
@@ -390,7 +539,7 @@ function signatureForEntries(entries) {
 
 function localizeFixedPorts(node, updateTitle = false) {
   const text = labels();
-  if (isPack(node)) {
+  if (isWiredPack(node)) {
     const out = node.outputs?.[0];
     if (out) {
       out.name = "bus";
@@ -398,7 +547,7 @@ function localizeFixedPorts(node, updateTitle = false) {
       out.type = BUS_TYPE;
     }
     if (updateTitle) node.title = text.packTitle;
-  } else if (isUnpack(node)) {
+  } else if (isWiredUnpack(node)) {
     const input = node.inputs?.[0];
     if (input) {
       input.name = "bus";
@@ -406,6 +555,14 @@ function localizeFixedPorts(node, updateTitle = false) {
       input.type = BUS_TYPE;
     }
     if (updateTitle) node.title = text.unpackTitle;
+  } else if (isWirelessPack(node)) {
+    const widget = wirelessChannelWidget(node);
+    if (widget) widget.name = text.channelName;
+    if (updateTitle) node.title = text.wirelessPackTitle;
+  } else if (isWirelessUnpack(node)) {
+    const widget = wirelessChannelWidget(node);
+    if (widget) widget.name = text.channelSelect;
+    if (updateTitle) node.title = text.wirelessUnpackTitle;
   }
 }
 
@@ -424,13 +581,17 @@ function compactBusNodeHeight(laneCount) {
 function compactBusNodeMinimumHeight(node, laneCount) {
   const slotHeight = Math.max(16, Number(globalThis.LiteGraph?.NODE_SLOT_HEIGHT) || 20);
   const visibleSlots = Math.max(1, Number(laneCount) || 0) + (isPack(node) ? 1 : 0);
-  return COMPACT_NODE_SLOT_PADDING + visibleSlots * slotHeight;
+  return COMPACT_NODE_SLOT_PADDING + visibleSlots * slotHeight
+    + (isWireless(node) ? WIRELESS_WIDGET_HEIGHT : 0);
 }
 
 function resizeCompactBusNode(node, laneCount) {
   if (!node) return;
   const minHeight = compactBusNodeMinimumHeight(node, laneCount);
-  const preferredHeight = Math.max(minHeight, compactBusNodeHeight(laneCount));
+  const preferredHeight = Math.max(
+    minHeight,
+    compactBusNodeHeight(laneCount) + (isWireless(node) ? WIRELESS_WIDGET_HEIGHT : 0)
+  );
   const initialized = node.__terryBusLayoutInitialized === true;
   const currentWidth = Number(node.size?.[0]) || COMPACT_NODE_WIDTH;
   const currentHeight = Number(node.size?.[1]) || preferredHeight;
@@ -442,6 +603,7 @@ function resizeCompactBusNode(node, laneCount) {
   node.__terryBusMinHeight = minHeight;
   node.__terryBusPreferredHeight = preferredHeight;
   node.__terryBusLayoutInitialized = true;
+  if (isWireless(node)) node.widgets_start_y = height - WIRELESS_WIDGET_HEIGHT + 6;
   node.setSize?.([width, height]);
 }
 
@@ -649,11 +811,31 @@ app.registerExtension({
       [],
       []
     );
+    defs[WIRELESS_PACK_TYPE] = makeNodeDef(
+      WIRELESS_PACK_TYPE,
+      text.wirelessPackTitle,
+      text.wirelessPackDescription,
+      text.category,
+      { required: { wire: [EMPTY_TYPE, { label: text.addWire }] } },
+      [],
+      []
+    );
+    defs[WIRELESS_UNPACK_TYPE] = makeNodeDef(
+      WIRELESS_UNPACK_TYPE,
+      text.wirelessUnpackTitle,
+      text.wirelessUnpackDescription,
+      text.category,
+      { required: {} },
+      [],
+      []
+    );
   },
 
   beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData.name !== PACK_TYPE && nodeData.name !== UNPACK_TYPE) return;
-    const isPackDef = nodeData.name === PACK_TYPE;
+    const nodeName = nodeData.name;
+    if (![PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(nodeName)) return;
+    const isPackDef = nodeName === PACK_TYPE || nodeName === WIRELESS_PACK_TYPE;
+    const isWirelessDef = nodeName === WIRELESS_PACK_TYPE || nodeName === WIRELESS_UNPACK_TYPE;
 
     const originalComputeSize = nodeType.prototype.computeSize;
     nodeType.prototype.computeSize = function () {
@@ -670,8 +852,9 @@ app.registerExtension({
     nodeType.prototype.onNodeCreated = function () {
       const result = originalCreated?.apply(this, arguments);
       this.isVirtualNode = true;
-      this.serialize_widgets = false;
+      this.serialize_widgets = isWirelessDef;
       this.resizable = false;
+      if (isWirelessDef) initializeWirelessWidget(this);
       localizeFixedPorts(this, true);
       if (isPackDef) {
         const first = this.inputs?.[0];
@@ -689,6 +872,45 @@ app.registerExtension({
 
     nodeType.prototype.applyToGraph = function () {};
 
+    if (isWirelessDef) {
+      const originalAdded = nodeType.prototype.onAdded;
+      nodeType.prototype.onAdded = function () {
+        const result = originalAdded?.apply(this, arguments);
+        if (!app.configuringGraph) {
+          if (isPackDef) setWirelessChannel(this, wirelessChannelName(this));
+          else refreshWirelessCombo(this);
+        }
+        return result;
+      };
+
+      const originalRemoved = nodeType.prototype.onRemoved;
+      nodeType.prototype.onRemoved = function () {
+        const result = originalRemoved?.apply(this, arguments);
+        if (isPackDef && !app.configuringGraph) queueMicrotask(() => refreshWirelessChannels());
+        return result;
+      };
+
+      if (!isPackDef) {
+        // Match KJNodes GetNode's virtual-link contract so ComfyUI can discover
+        // the real execution dependency before graphToPrompt expands outputs.
+        nodeType.prototype.getInputLink = function (slot) {
+          const pack = findPackFromUnpack(this);
+          if (!pack || pack.graph !== this.graph) return null;
+          const laneId = this.outputs?.[Number(slot) || 0]?.[LANE_FIELD];
+          const input = laneId ? laneInput(pack, laneId) : null;
+          return input?.link == null ? null : getLink(pack.graph, input.link);
+        };
+
+        nodeType.prototype.resolveVirtualOutput = function (slot) {
+          const pack = findPackFromUnpack(this);
+          const laneId = this.outputs?.[Number(slot) || 0]?.[LANE_FIELD];
+          const input = pack && laneId ? laneInput(pack, laneId) : null;
+          const source = input?.link == null ? null : resolveUpstream(pack.graph, input.link);
+          return source ? { node: source.node, slot: source.slot } : undefined;
+        };
+      }
+    }
+
     const originalConnections = nodeType.prototype.onConnectionsChange;
     nodeType.prototype.onConnectionsChange = function (type, index) {
       const result = originalConnections?.apply(this, arguments);
@@ -696,7 +918,7 @@ app.registerExtension({
       if (isPackDef) {
         if (type === LiteGraph.INPUT) queueMicrotask(() => refreshPackSlots(this));
         else queueMicrotask(syncAllUnpacks);
-      } else if (type === LiteGraph.INPUT && index === 0) {
+      } else if (!isWirelessDef && type === LiteGraph.INPUT && index === 0) {
         queueMicrotask(() => syncUnpack(this, true));
       } else if (type === LiteGraph.OUTPUT) {
         const pack = findPackFromUnpack(this);
@@ -709,12 +931,14 @@ app.registerExtension({
       nodeType.prototype.onConnectInput = function (slot, type) {
         return slot >= 0 && type !== BUS_TYPE;
       };
-      nodeType.prototype.onConnectOutput = function (slot, type, input, targetNode) {
-        return slot === 0 && (isUnpack(targetNode) || isReroute(targetNode) || isSet(targetNode));
-      };
-    } else {
+      if (!isWirelessDef) {
+        nodeType.prototype.onConnectOutput = function (slot, type, input, targetNode) {
+          return slot === 0 && (isWiredUnpack(targetNode) || isReroute(targetNode) || isSet(targetNode));
+        };
+      }
+    } else if (!isWirelessDef) {
       nodeType.prototype.onConnectInput = function (slot, type, output, originNode) {
-        return slot === 0 && (type === BUS_TYPE || isPack(originNode) || isReroute(originNode) || isGet(originNode));
+        return slot === 0 && (type === BUS_TYPE || isWiredPack(originNode) || isReroute(originNode) || isGet(originNode));
       };
     }
 
@@ -722,6 +946,14 @@ app.registerExtension({
     nodeType.prototype.onConfigure = function () {
       const result = originalConfigure?.apply(this, arguments);
       this.resizable = false;
+      if (isWirelessDef) {
+        initializeWirelessWidget(this);
+        const restored = wirelessChannelWidget(this)?.value
+          ?? this.properties?.[WIRELESS_CHANNEL_PROPERTY]
+          ?? "";
+        setWirelessChannel(this, restored, false);
+        if (!isPackDef) refreshWirelessCombo(this);
+      }
       localizeFixedPorts(this, true);
       if (isPackDef) queueMicrotask(() => refreshPackSlots(this));
       else queueMicrotask(() => syncUnpack(this, true));
@@ -743,5 +975,6 @@ app.registerExtension({
         if (isUnpack(node)) syncUnpack(node, true);
       }
     }
+    refreshWirelessChannels();
   },
 });

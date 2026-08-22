@@ -3,9 +3,12 @@ import { app } from "../../scripts/app.js";
 const BUS_TYPE = "TERRY_WIRE_BUS";
 const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
+const WIRELESS_PACK_TYPE = "TerryWirelessBusPack";
+const WIRELESS_UNPACK_TYPE = "TerryWirelessBusUnpack";
 const GET_TYPE = "GetNode";
 const SET_TYPE = "SetNode";
 const VUE_STYLE_ID = "terry-wire-bus-vue-port-style";
+const WIRELESS_WIDGET_HEIGHT = 38;
 
 function nodeType(node) {
   return String(
@@ -140,12 +143,18 @@ function isNodeCollapsed(node) {
   return Boolean(node?.flags?.collapsed);
 }
 
+function isWirelessBusNode(node) {
+  const type = nodeType(node);
+  return type === WIRELESS_PACK_TYPE || type === WIRELESS_UNPACK_TYPE;
+}
+
 function centeredLanePosition(node, slot, count, isInput) {
   const spacing = Math.max(12, Number(globalThis.LiteGraph?.NODE_SLOT_HEIGHT) || 20);
   const index = Math.max(0, Number(slot) || 0);
   const total = Math.max(1, Number(count) || 0);
   const x = Number(node?.pos?.[0] || 0) + (isInput ? 0 : Number(node?.size?.[0] || 0));
-  const y = nodeVisualCenterY(node) + (index - (total - 1) * 0.5) * spacing;
+  const widgetOffset = isWirelessBusNode(node) ? WIRELESS_WIDGET_HEIGHT * 0.5 : 0;
+  const y = nodeVisualCenterY(node) - widgetOffset + (index - (total - 1) * 0.5) * spacing;
   return [x, y];
 }
 
@@ -319,7 +328,7 @@ function attrEscape(value) {
 function vueBusNodes() {
   return (app.graph?._nodes || []).filter((node) => {
     const type = nodeType(node);
-    return type === PACK_TYPE || type === UNPACK_TYPE;
+    return [PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(type);
   });
 }
 
@@ -339,6 +348,9 @@ function refreshVuePortStyle() {
   const unpackOutputGroups = [];
   const nodeLayoutRules = [];
   const packEdgeMasks = [];
+  const wirelessInputGroups = [];
+  const wirelessOutputGroups = [];
+  const wirelessWidgets = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
@@ -359,15 +371,25 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
   min-height:${minHeight}px !important;
 }
 `);
-    if (nodeType(node) === PACK_TYPE) {
+    const type = nodeType(node);
+    if (type === PACK_TYPE) {
       packEdgeMasks.push(`${expandedRoot}::after`);
       packInputGroups.push(`${root} :has(> .lg-slot--input)`);
       packRows.push(`${root} .lg-slot--output`);
       packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
-    } else {
+    } else if (type === UNPACK_TYPE) {
       unpackOutputGroups.push(`${root} :has(> .lg-slot--output)`);
       unpackRows.push(`${root} .lg-slot--input`);
       unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
+    } else {
+      const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
+      const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
+      groups.push(`${root} :has(> .lg-slot--${direction})`);
+      wirelessWidgets.push(
+        `${expandedRoot} [data-testid="node-widget"]`,
+        `${expandedRoot} [data-testid="widget"]`,
+        `${expandedRoot} [data-widget-name]`
+      );
     }
   }
 
@@ -377,7 +399,7 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
     ...unpacks.map((s) => `${s} [data-testid="slot-dot"]`),
   ];
 
-  style.textContent = selectors.length ? `
+  style.textContent = nodeLayoutRules.length ? `
 ${nodeLayoutRules.join("\n")}
 ${packEdgeMasks.length ? `${packEdgeMasks.join(",\n")}{
   content:"";
@@ -391,35 +413,58 @@ ${packEdgeMasks.length ? `${packEdgeMasks.join(",\n")}{
   pointer-events:none;
   z-index:3;
 }` : ""}
-${packInputGroups.join(",\n")}{
+${packInputGroups.length ? `${packInputGroups.join(",\n")}{
   position:absolute !important;
   left:0;
   top:50% !important;
   transform:translateY(-50%);
   z-index:3;
-}
-${unpackOutputGroups.join(",\n")}{
+}` : ""}
+${unpackOutputGroups.length ? `${unpackOutputGroups.join(",\n")}{
   position:absolute !important;
   right:0;
   top:50% !important;
   transform:translateY(-50%);
   z-index:3;
-}
-${packRows.join(",\n")}{
+}` : ""}
+${wirelessInputGroups.length ? `${wirelessInputGroups.join(",\n")}{
+  position:absolute !important;
+  left:0;
+  top:calc(50% - ${WIRELESS_WIDGET_HEIGHT * 0.5}px) !important;
+  transform:translateY(-50%);
+  z-index:3;
+}` : ""}
+${wirelessOutputGroups.length ? `${wirelessOutputGroups.join(",\n")}{
+  position:absolute !important;
+  right:0;
+  top:calc(50% - ${WIRELESS_WIDGET_HEIGHT * 0.5}px) !important;
+  transform:translateY(-50%);
+  z-index:3;
+}` : ""}
+${wirelessWidgets.length ? `${wirelessWidgets.join(",\n")}{
+  position:absolute !important;
+  left:6px;
+  right:6px;
+  bottom:7px;
+  width:auto !important;
+  max-width:calc(100% - 12px);
+  z-index:4;
+}` : ""}
+${packRows.length ? `${packRows.join(",\n")}{
   position:absolute !important;
   right:0;
   top:50% !important;
   transform:translateY(-50%);
   z-index:4;
-}
-${unpackRows.join(",\n")}{
+}` : ""}
+${unpackRows.length ? `${unpackRows.join(",\n")}{
   position:absolute !important;
   left:0;
   top:50% !important;
   transform:translateY(-50%);
   z-index:4;
-}
-${selectors.join(",\n")}{
+}` : ""}
+${selectors.length ? `${selectors.join(",\n")}{
   position:relative;
   overflow:visible;
   width:12px !important;
@@ -434,12 +479,12 @@ ${selectors.join(",\n")}{
   display:flex;
   align-items:center;
   justify-content:center;
-}
-${dotSelectors.join(",\n")}{
+}` : ""}
+${dotSelectors.length ? `${dotSelectors.join(",\n")}{
   position:relative;
   z-index:1;
   flex:none;
-}
+}` : ""}
 ` : "";
 }
 
@@ -456,7 +501,7 @@ function queueVueStyleRefresh() {
 function patchBusNode(node) {
   if (!node) return;
   const type = nodeType(node);
-  if (type !== PACK_TYPE && type !== UNPACK_TYPE) return;
+  if (![PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(type)) return;
   queueVueStyleRefresh();
   if (node.__terryBusCapsulePatched) return;
   node.__terryBusCapsulePatched = true;
@@ -470,7 +515,7 @@ function patchBusNode(node) {
     if (nodeType(this) === UNPACK_TYPE && Number(slot) === 0) {
       return [Number(this.pos?.[0] || 0), nodeVisualCenterY(this)];
     }
-    if (nodeType(this) === PACK_TYPE) {
+    if (nodeType(this) === PACK_TYPE || nodeType(this) === WIRELESS_PACK_TYPE) {
       return centeredLanePosition(this, slot, this.inputs?.length || 0, true);
     }
     return originalInputPos?.apply?.(this, arguments);
@@ -483,7 +528,7 @@ function patchBusNode(node) {
         nodeVisualCenterY(this),
       ];
     }
-    if (nodeType(this) === UNPACK_TYPE) {
+    if (nodeType(this) === UNPACK_TYPE || nodeType(this) === WIRELESS_UNPACK_TYPE) {
       return centeredLanePosition(this, slot, this.outputs?.length || 0, false);
     }
     return originalOutputPos?.apply?.(this, arguments);
