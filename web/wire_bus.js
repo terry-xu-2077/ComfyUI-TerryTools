@@ -8,10 +8,10 @@ const EMPTY_TYPE = "*";
 const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
 const LANE_FIELD = "terry_lane_id";
-const COMPACT_NODE_WIDTH = 160;
-const COMPACT_NODE_MIN_HEIGHT = 240;
-const COMPACT_NODE_HEADER_HEIGHT = 140;
-const COMPACT_NODE_LANE_HEIGHT = 38;
+const COMPACT_NODE_WIDTH = 140;
+const COMPACT_NODE_MIN_HEIGHT = 280;
+const COMPACT_NODE_HEADER_HEIGHT = 160;
+const COMPACT_NODE_LANE_HEIGHT = 40;
 
 let laneSequence = 0;
 
