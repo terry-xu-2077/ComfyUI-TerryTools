@@ -12,22 +12,6 @@ const TYPE_WIDGETS = {
 const ALL_TYPE_WIDGETS = Object.values(TYPE_WIDGETS).flat();
 const FILE_WIDGETS = ["filename"];
 
-function localeIsZh() {
-  try {
-    const raw = app?.ui?.settings?.getSettingValue?.("Comfy.Locale");
-    const locale = String(raw || navigator.language || "en")
-      .toLowerCase()
-      .replaceAll("_", "-");
-    return locale === "zh" || locale.startsWith("zh-");
-  } catch {
-    return String(navigator.language || "en").toLowerCase().startsWith("zh");
-  }
-}
-
-function t(zh, en) {
-  return localeIsZh() ? zh : en;
-}
-
 function getWidget(node, name) {
   return node.widgets?.find((widget) => widget?.name === name) || null;
 }
@@ -53,22 +37,6 @@ function setWidgetHidden(node, name, hidden) {
   widget.options ||= {};
   widget.options.hidden = hidden;
   if (widget.element?.style) widget.element.style.display = hidden ? "none" : "";
-}
-
-function moveWidgetBefore(node, widget, anchorNames) {
-  const widgets = node.widgets;
-  if (!Array.isArray(widgets) || !widget) return;
-  const current = widgets.indexOf(widget);
-  if (current >= 0) widgets.splice(current, 1);
-
-  let anchor = -1;
-  for (const name of anchorNames) {
-    anchor = widgets.findIndex((item) => item?.name === name);
-    if (anchor >= 0) break;
-  }
-
-  if (anchor < 0) widgets.push(widget);
-  else widgets.splice(anchor, 0, widget);
 }
 
 function getGraphLink(graph, linkId) {
@@ -138,101 +106,78 @@ function resizeToContent(node) {
   app.graph?.setDirtyCanvas?.(true, true);
 }
 
-function makeSection(node, key) {
-  node.__terryNoSeqSections ||= {};
-  if (node.__terryNoSeqSections[key] || typeof node.addDOMWidget !== "function") {
-    return node.__terryNoSeqSections[key];
-  }
-
-  const element = document.createElement("div");
-  element.style.boxSizing = "border-box";
-  element.style.width = "100%";
-  element.style.pointerEvents = "none";
-
-  if (key === "divider") {
-    element.style.height = "32px";
-    element.style.margin = "0";
-  } else {
-    element.style.height = "30px";
-    element.style.padding = "8px 10px 3px";
-    element.style.fontSize = "12px";
-    element.style.fontWeight = "400";
-    element.style.letterSpacing = ".02em";
-    element.style.color =
-      "color-mix(in srgb, var(--fg-color, #ddd) 52%, transparent)";
-  }
-
-  const widget = node.addDOMWidget(`terry_no_seq_${key}`, "div", element, {
-    serialize: false,
-    hideOnZoom: false,
-  });
-  widget.serialize = false;
-  widget.computeSize = function (width) {
-    if (this.hidden) return [0, -4];
-    return [width ?? 0, key === "divider" ? 36 : 32];
-  };
-
-  return (node.__terryNoSeqSections[key] = { element, widget });
-}
-
-function dividerY(node) {
-  const divider = node.__terryNoSeqSections?.divider?.widget;
-  if (!divider || divider.hidden) return null;
-  for (const value of [divider.last_y, divider.y, divider.pos?.[1]]) {
+function widgetY(widget) {
+  for (const value of [widget?.last_y, widget?.y, widget?.pos?.[1]]) {
     const y = Number(value);
-    if (Number.isFinite(y) && y >= 0) return y + 18;
+    if (Number.isFinite(y) && y >= 0) return y;
   }
   return null;
 }
 
-function drawDivider(node, ctx) {
-  const y = dividerY(node);
-  if (y == null || !ctx) return;
+function visibleGroupBounds(node, names) {
+  const entries = [];
+  for (const name of names) {
+    const widget = getWidget(node, name);
+    if (!widget || widget.hidden || widget.options?.hidden) continue;
+    const y = widgetY(widget);
+    if (y == null) continue;
+    let h = 24;
+    try {
+      const size = widget.computeSize?.(Math.max(0, (node.size?.[0] || 0) - 24));
+      if (Array.isArray(size) && Number.isFinite(Number(size[1])) && Number(size[1]) > 0) {
+        h = Number(size[1]);
+      }
+    } catch {}
+    entries.push({ y, h });
+  }
+  if (!entries.length) return null;
+  const top = Math.min(...entries.map((item) => item.y)) - 7;
+  const bottom = Math.max(...entries.map((item) => item.y + item.h)) + 7;
+  return { top, bottom };
+}
 
+function roundedRectPath(ctx, x, y, w, h, r) {
+  const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+  if (typeof ctx.roundRect === "function") {
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, radius);
+    return;
+  }
+  ctx.beginPath();
+  ctx.moveTo(x + radius, y);
+  ctx.lineTo(x + w - radius, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + radius);
+  ctx.lineTo(x + w, y + h - radius);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - radius, y + h);
+  ctx.lineTo(x + radius, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - radius);
+  ctx.lineTo(x, y + radius);
+  ctx.quadraticCurveTo(x, y, x + radius, y);
+  ctx.closePath();
+}
+
+function drawGroupBox(node, ctx, names) {
+  const bounds = visibleGroupBounds(node, names);
+  if (!bounds || !ctx) return;
   const width = Number(node.size?.[0]) || 0;
-  if (width <= 80) return;
+  if (width <= 40) return;
+  const x = 10;
+  const w = width - 20;
+  const h = bounds.bottom - bounds.top;
+  if (h <= 0) return;
 
   ctx.save();
-  ctx.beginPath();
-  ctx.moveTo(50, y + 0.5);
-  ctx.lineTo(width - 12, y + 0.5);
-  ctx.strokeStyle = "rgba(180, 180, 180, 0.28)";
+  roundedRectPath(ctx, x, bounds.top, w, h, 10);
+  ctx.strokeStyle = "rgba(180, 180, 180, 0.24)";
   ctx.lineWidth = 1;
   ctx.stroke();
   ctx.restore();
 }
 
-function updateSections(node, type) {
-  const media = makeSection(node, "media");
-  const divider = makeSection(node, "divider");
-  const file = makeSection(node, "file");
-
-  const labels = {
-    IMAGE: t("图片参数", "Image Parameters"),
-    AUDIO: t("音频参数", "Audio Parameters"),
-    VIDEO: t("视频参数", "Video Parameters"),
-    STRING: t("文本参数", "Text Parameters"),
-  };
-
-  media.element.textContent = labels[type] || "";
-  file.element.textContent = t("文件名", "Filename");
-
-  media.widget.hidden = !type;
-  media.widget.options ||= {};
-  media.widget.options.hidden = !type;
-  media.element.style.display = type ? "block" : "none";
-
-  if (type) moveWidgetBefore(node, media.widget, TYPE_WIDGETS[type]);
-  moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
-  moveWidgetBefore(node, file.widget, FILE_WIDGETS);
-
-  const widgets = node.widgets || [];
-  const dividerIndex = widgets.indexOf(divider.widget);
-  const fileIndex = widgets.indexOf(file.widget);
-  if (dividerIndex > fileIndex && fileIndex >= 0) {
-    widgets.splice(dividerIndex, 1);
-    widgets.splice(fileIndex, 0, divider.widget);
-  }
+function drawParameterGroups(node, ctx) {
+  const type = connectedType(node);
+  if (type) drawGroupBox(node, ctx, TYPE_WIDGETS[type]);
+  drawGroupBox(node, ctx, FILE_WIDGETS);
 }
 
 function applyDynamicPanel(node) {
@@ -270,7 +215,6 @@ function applyDynamicPanel(node) {
     );
   }
 
-  updateSections(node, type);
   resizeToContent(node);
 }
 
@@ -305,9 +249,6 @@ function initNode(node) {
     hookWidget(node, name);
   }
 
-  makeSection(node, "media");
-  makeSection(node, "divider");
-  makeSection(node, "file");
   applyDynamicPanel(node);
   schedulePanelRefresh(node);
 }
@@ -342,7 +283,7 @@ app.registerExtension({
     const drawForeground = nodeType.prototype.onDrawForeground;
     nodeType.prototype.onDrawForeground = function (ctx) {
       const result = drawForeground?.apply(this, arguments);
-      drawDivider(this, ctx);
+      drawParameterGroups(this, ctx);
       return result;
     };
   },
