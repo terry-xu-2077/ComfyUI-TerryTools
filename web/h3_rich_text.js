@@ -30,6 +30,20 @@ const EXACT_LABELS = new Map([
   ["[audio reference]", ["音频参考", "Audio Reference"]],
 ]);
 
+const DIALOGUE_LANGUAGES = [
+  "English", "Chinese", "Cantonese", "Japanese", "Korean", "Spanish", "French",
+  "German", "Italian", "Portuguese", "Russian", "Arabic", "Hindi", "Thai",
+  "Vietnamese", "Indonesian", "Turkish", "Polish", "Dutch", "Other",
+];
+
+const LANGUAGE_ZH = {
+  English: "英语", Chinese: "中文", Cantonese: "粤语", Japanese: "日语", Korean: "韩语",
+  Spanish: "西班牙语", French: "法语", German: "德语", Italian: "意大利语",
+  Portuguese: "葡萄牙语", Russian: "俄语", Arabic: "阿拉伯语", Hindi: "印地语",
+  Thai: "泰语", Vietnamese: "越南语", Indonesian: "印尼语", Turkish: "土耳其语",
+  Polish: "波兰语", Dutch: "荷兰语", Other: "其他",
+};
+
 export const H3_TOKEN_PATTERN = /<d>\[[^\]]+\][\s\S]*?<\/d>|<(?:Subject|Picture|Video|Audio)\s+\d+>|\[Shot\s+\d+\]|\(S\d+\)|<scenetrans>|<cutoff>|\b(?:fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)\b|\b\d{2}:\d{2}\.\d{3}\b|^(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):|\[(?:reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(?:\s*\+[^\]]+)?\]/gmi;
 
 export function h3LocaleIsZh() {
@@ -106,22 +120,38 @@ function dialogueChip(raw, onChange, options = {}) {
   const chip = baseChip(raw, "dialogue", options);
   chip.classList.add("terry-h3-dialogue", "terry-h3-dialogue-editor");
   if (!match) { chip.textContent = raw; return chip; }
-  const language = document.createElement("span");
-  language.className = "terry-h3-dialogue-language-label";
-  language.textContent = match[1];
-  const text = document.createElement("span");
-  text.className = "terry-h3-dialogue-text";
-  text.contentEditable = "true";
-  text.spellcheck = false;
-  text.textContent = match[2] || "";
+
+  const select = document.createElement("select");
+  select.className = "terry-h3-dialogue-language";
+  select.setAttribute("aria-label", h3LocaleIsZh() ? "对白语言" : "Dialogue language");
+  const current = match[1] || "English";
+  const languages = DIALOGUE_LANGUAGES.includes(current) ? DIALOGUE_LANGUAGES : [current, ...DIALOGUE_LANGUAGES];
+  for (const language of languages) {
+    const option = document.createElement("option");
+    option.value = language;
+    option.textContent = h3LocaleIsZh() ? (LANGUAGE_ZH[language] || language) : language;
+    if (language === current) option.selected = true;
+    select.append(option);
+  }
+
+  const body = document.createElement("span");
+  body.className = "terry-h3-dialogue-text";
+  body.contentEditable = "true";
+  body.spellcheck = false;
+  body.dataset.placeholder = h3LocaleIsZh() ? "输入对白…" : "Dialogue…";
+  body.textContent = match[2] || "";
+
   const update = () => {
-    chip.dataset.raw = `<d>[${language.textContent}] ${text.innerText.replaceAll("\n", " ")}</d>`;
+    chip.dataset.raw = `<d>[${select.value || "English"}] ${body.innerText.replaceAll("\n", " ")}</d>`;
     onChange?.();
   };
-  text.addEventListener("input", update);
-  text.addEventListener("pointerdown", (event) => event.stopPropagation());
-  text.addEventListener("keydown", (event) => { event.stopPropagation(); if (event.key === "Enter") event.preventDefault(); });
-  chip.append(language, text);
+  select.addEventListener("change", update);
+  select.addEventListener("pointerdown", (event) => event.stopPropagation());
+  select.addEventListener("keydown", (event) => event.stopPropagation());
+  body.addEventListener("input", update);
+  body.addEventListener("pointerdown", (event) => event.stopPropagation());
+  body.addEventListener("keydown", (event) => { event.stopPropagation(); if (event.key === "Enter") event.preventDefault(); });
+  chip.append(select, body);
   return chip;
 }
 
@@ -323,7 +353,7 @@ export function installH3RichTextStyles() {
 .terry-h3-type-time{background:rgba(110,190,255,.1)!important;color:rgb(196,229,255)!important;box-shadow:inset 0 0 0 1px rgba(110,190,255,.2)!important}
 .terry-h3-type-transition{background:rgba(255,145,95,.11)!important;color:rgb(255,213,191)!important;box-shadow:inset 0 0 0 1px rgba(255,145,95,.22)!important}
 .terry-h3-type-task{background:rgba(128,205,125,.11)!important;color:rgb(207,245,205)!important;box-shadow:inset 0 0 0 1px rgba(128,205,125,.22)!important}
-.terry-h3-dialogue-editor{white-space:normal!important}.terry-h3-dialogue-language-label{opacity:.72;font-size:9px}.terry-h3-dialogue-text{outline:none;min-width:30px;white-space:normal}
+.terry-h3-dialogue-editor{white-space:normal!important}.terry-h3-dialogue-language{height:22px;min-width:66px;max-width:92px;padding:0 4px;border:1px solid rgba(255,255,255,.12)!important;border-radius:4px;outline:none;background:#24272d!important;color:#d8dde6!important;color-scheme:dark;font:10px/1 system-ui,sans-serif;cursor:pointer}.terry-h3-dialogue-language option{color:#d8dde6!important;background:#24272d!important}.terry-h3-dialogue-text{outline:none;min-width:72px;max-width:360px;white-space:normal}
 .terry-h3-number-picker{position:fixed;z-index:10140;width:230px;padding:7px;border:1px solid rgba(255,255,255,.15);border-radius:9px;background:var(--comfy-menu-bg,#202225);box-shadow:0 16px 38px rgba(0,0,0,.48);color:var(--input-text,#ddd)}
 .terry-h3-number-picker-head{padding:3px 4px 7px;font:600 11px/1.2 system-ui,sans-serif;opacity:.75}.terry-h3-number-picker-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}.terry-h3-number-picker-grid button{height:28px;border:0;border-radius:5px;background:rgba(255,255,255,.06);color:inherit;cursor:pointer}.terry-h3-number-picker-grid button:hover,.terry-h3-number-picker-grid button.is-current{background:rgba(255,215,75,.2);color:rgb(255,236,166)}
 `;
