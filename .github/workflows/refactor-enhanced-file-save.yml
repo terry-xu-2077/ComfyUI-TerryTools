@@ -21,61 +21,93 @@ jobs:
         shell: python
         run: |
           from pathlib import Path
-          import json, re
+          import json
 
           root = Path('.')
           py = root / 'nodes/enhanced_file_save.py'
           js = root / 'web/enhanced_file_save.js'
-
           text = py.read_text(encoding='utf-8')
 
-          # Replace timestamp formatter with one stable date-format input.
-          text = re.sub(
-              r'def _timestamp\([\s\S]*?\n\ndef _sanitize_rel_path',
-              '''DATE_FORMATS = {\n    "none": "",\n    "YYYYMMDD_HHmmss": "%Y%m%d_%H%M%S",\n    "YYYY-MM-DD_HH-mm-ss": "%Y-%m-%d_%H-%M-%S",\n    "YYYY_MM_DD_HH_mm_ss": "%Y_%m_%d_%H_%M_%S",\n    "YYYYMMDDHHmmss": "%Y%m%d%H%M%S",\n    "YYYYMMDD_HHmm": "%Y%m%d_%H%M",\n    "YYYY-MM-DD_HH-mm": "%Y-%m-%d_%H-%M",\n    "YYYY_MM_DD_HH_mm": "%Y_%m_%d_%H_%M",\n    "YYYYMMDDHHmm": "%Y%m%d%H%M",\n    "YYYYMMDD_HH": "%Y%m%d_%H",\n    "YYYY-MM-DD_HH": "%Y-%m-%d_%H",\n    "YYYY_MM_DD_HH": "%Y_%m_%d_%H",\n    "YYYYMMDDHH": "%Y%m%d%H",\n    "YYYYMMDD": "%Y%m%d",\n    "YYYY-MM-DD": "%Y-%m-%d",\n    "YYYY_MM_DD": "%Y_%m_%d",\n    "YYYYMM": "%Y%m",\n}\n\ndef _timestamp(date_format: str) -> str:\n    pattern = DATE_FORMATS.get(str(date_format or "none"), "")\n    return datetime.now().strftime(pattern) if pattern else ""\n\ndef _sanitize_rel_path''',
-              text,
-              count=1,
-          )
+          def replace_between(source, start_marker, end_marker, replacement):
+              start = source.index(start_marker)
+              end = source.index(end_marker, start)
+              return source[:start] + replacement + source[end:]
 
-          text = re.sub(
-              r'def _build_rel_stem\(\n    filename_template: str,\n    use_timestamp: bool,\n    ts_year: bool,\n    ts_date: bool,\n    ts_hour: bool,\n    ts_minute_second: bool,\n\) -> str:\n    stamp = _timestamp\([\s\S]*?\n    value =',
-              'def _build_rel_stem(\n    filename_template: str,\n    date_format: str,\n) -> str:\n    stamp = _timestamp(date_format)\n    value =',
-              text,
-              count=1,
-          )
+          date_block = '''DATE_FORMATS = {
+    "none": "",
+    "YYYYMMDD_HHmmss": "%Y%m%d_%H%M%S",
+    "YYYY-MM-DD_HH-mm-ss": "%Y-%m-%d_%H-%M-%S",
+    "YYYY_MM_DD_HH_mm_ss": "%Y_%m_%d_%H_%M_%S",
+    "YYYYMMDDHHmmss": "%Y%m%d%H%M%S",
+    "YYYYMMDD_HHmm": "%Y%m%d_%H%M",
+    "YYYY-MM-DD_HH-mm": "%Y-%m-%d_%H-%M",
+    "YYYY_MM_DD_HH_mm": "%Y_%m_%d_%H_%M",
+    "YYYYMMDDHHmm": "%Y%m%d%H%M",
+    "YYYYMMDD_HH": "%Y%m%d_%H",
+    "YYYY-MM-DD_HH": "%Y-%m-%d_%H",
+    "YYYY_MM_DD_HH": "%Y_%m_%d_%H",
+    "YYYYMMDDHH": "%Y%m%d%H",
+    "YYYYMMDD": "%Y%m%d",
+    "YYYY-MM-DD": "%Y-%m-%d",
+    "YYYY_MM_DD": "%Y_%m_%d",
+    "YYYYMM": "%Y%m",
+}
 
-          old_inputs = '''                io.Boolean.Input(\n                    "use_timestamp",\n                    display_name="启用 %date% 时间戳",\n                    default=True,\n                ),\n                io.Boolean.Input(\n                    "ts_year",\n                    display_name="时间戳：年份",\n                    default=True,\n                ),\n                io.Boolean.Input(\n                    "ts_date",\n                    display_name="时间戳：日期",\n                    default=True,\n                ),\n                io.Boolean.Input(\n                    "ts_hour",\n                    display_name="时间戳：时",\n                    default=True,\n                ),\n                io.Boolean.Input(\n                    "ts_minute_second",\n                    display_name="时间戳：分秒",\n                    default=True,\n                ),'''
-          new_input = '''                io.Combo.Input(\n                    "date_format",\n                    display_name="日期格式",\n                    options=list(DATE_FORMATS.keys()),\n                    default="YYYYMMDD_HHmmss",\n                    tooltip="文件名中的 %date% 会按所选格式替换；选择 none 时会替换为空字符串。",\n                ),'''
-          if old_inputs not in text:
-              raise RuntimeError('timestamp input block not found')
-          text = text.replace(old_inputs, new_input, 1)
 
-          text = text.replace(
-              '"可包含子文件夹，例如 project/shot_%date%。"\n                        "%date% 会按下方勾选项替换。若填写扩展名，将自动移除，"',
-              '"可包含子文件夹，例如 project/shot_%date%。"\n                        "%date% 会按日期格式下拉选项替换。若填写扩展名，将自动移除，"',
-          )
-          text = text.replace(
-              '"按真实输入类型自动保存，并提供精确文件名、%date% 时间戳和可选序列号。"',
-              '"按真实输入类型自动保存，并提供精确文件名、可格式化 %date% 日期和可选序列号。"',
-          )
+def _timestamp(date_format: str) -> str:
+    pattern = DATE_FORMATS.get(str(date_format or "none"), "")
+    return datetime.now().strftime(pattern) if pattern else ""
 
-          text = text.replace(
-              '''        use_timestamp,\n        ts_year,\n        ts_date,\n        ts_hour,\n        ts_minute_second,''',
-              '''        date_format,''',
-              1,
-          )
-          text = text.replace(
-              '''        stem = _build_rel_stem(\n            filename_template,\n            use_timestamp,\n            ts_year,\n            ts_date,\n            ts_hour,\n            ts_minute_second,\n        )''',
-              '''        stem = _build_rel_stem(filename_template, date_format)''',
-              1,
-          )
+'''
+          text = replace_between(text, 'def _timestamp(', 'def _sanitize_rel_path', date_block + 'def _sanitize_rel_path')
+
+          build_block = '''def _build_rel_stem(
+    filename_template: str,
+    date_format: str,
+) -> str:
+    stamp = _timestamp(date_format)
+    value = (filename_template or "ComfyUI").replace("%date%", stamp)
+    value = _sanitize_rel_path(value)
+
+    # The template is a "filename stem". If the user typed an extension,
+    # strip it here so the selected encoder always owns the real extension.
+    p = Path(value)
+    if p.suffix:
+        value = str(p.with_suffix("")).replace("\\\\", "/")
+
+    return value.rstrip("._- ") or "ComfyUI"
+
+
+'''
+          text = replace_between(text, 'def _build_rel_stem(', 'def _with_sequence', build_block + 'def _with_sequence')
+
+          start = text.index('                io.Boolean.Input(\n                    "use_timestamp"')
+          end = text.index('                io.Boolean.Input(\n                    "append_sequence"', start)
+          combo = '''                io.Combo.Input(
+                    "date_format",
+                    display_name="日期格式",
+                    options=list(DATE_FORMATS.keys()),
+                    default="YYYYMMDD_HHmmss",
+                    tooltip="文件名中的 %date% 会按所选格式替换；选择 none 时会替换为空字符串。",
+                ),
+'''
+          text = text[:start] + combo + text[end:]
+
+          text = text.replace('%date% 会按下方勾选项替换。', '%date% 会按日期格式下拉选项替换。')
+          text = text.replace('按真实输入类型自动保存，并提供精确文件名、%date% 时间戳和可选序列号。', '按真实输入类型自动保存，并提供精确文件名、可格式化 %date% 日期和可选序列号。')
+
+          params_start = text.index('        filename_template,\n        use_timestamp,')
+          params_end = text.index('        append_sequence,', params_start)
+          text = text[:params_start] + '        filename_template,\n        date_format,\n' + text[params_end:]
+
+          call_start = text.index('        stem = _build_rel_stem(')
+          call_end = text.index('\n\n        if kind == "text":', call_start)
+          text = text[:call_start] + '        stem = _build_rel_stem(filename_template, date_format)' + text[call_end:]
           py.write_text(text, encoding='utf-8')
 
-          # Rewrite frontend dynamic panel around semantic sections.
           js.write_text(r'''import { app } from "../../scripts/app.js";
 
 const NODE_ID = "EnhancedFileSave";
-
 const TYPE_WIDGETS = {
   IMAGE: ["image_compress_level"],
   AUDIO: ["audio_format", "audio_quality"],
@@ -90,80 +122,52 @@ function localeIsZh() {
     const raw = app?.ui?.settings?.getSettingValue?.("Comfy.Locale");
     const locale = String(raw || navigator.language || "en").toLowerCase().replaceAll("_", "-");
     return locale === "zh" || locale.startsWith("zh-");
-  } catch {
-    return String(navigator.language || "en").toLowerCase().startsWith("zh");
-  }
+  } catch { return String(navigator.language || "en").toLowerCase().startsWith("zh"); }
 }
-
 function t(zh, en) { return localeIsZh() ? zh : en; }
-
-function getWidget(node, name) {
-  return node.widgets?.find((widget) => widget?.name === name) || null;
-}
+function getWidget(node, name) { return node.widgets?.find((w) => w?.name === name) || null; }
 
 function installHideAdapter(widget) {
   if (!widget || widget.__terryHideAdapter) return;
   widget.__terryHideAdapter = true;
-  widget.__terryOriginalComputeSize = typeof widget.computeSize === "function"
-    ? widget.computeSize.bind(widget)
-    : null;
+  widget.__terryOriginalComputeSize = typeof widget.computeSize === "function" ? widget.computeSize.bind(widget) : null;
   widget.computeSize = function(width) {
     if (this.hidden) return [0, -4];
     return this.__terryOriginalComputeSize?.(width) || [width ?? 0, 20];
   };
 }
-
 function setWidgetHidden(node, name, hidden) {
-  const widget = getWidget(node, name);
-  if (!widget) return;
-  installHideAdapter(widget);
-  widget.hidden = hidden;
-  widget.options ||= {};
-  widget.options.hidden = hidden;
-  if (widget.element?.style) widget.element.style.display = hidden ? "none" : "";
+  const w = getWidget(node, name);
+  if (!w) return;
+  installHideAdapter(w);
+  w.hidden = hidden;
+  w.options ||= {};
+  w.options.hidden = hidden;
+  if (w.element?.style) w.element.style.display = hidden ? "none" : "";
 }
-
-function moveWidgetBefore(node, widget, anchorNames) {
+function moveWidgetBefore(node, widget, anchors) {
   const widgets = node.widgets;
   if (!Array.isArray(widgets) || !widget) return;
   const current = widgets.indexOf(widget);
   if (current >= 0) widgets.splice(current, 1);
   let anchor = -1;
-  for (const name of anchorNames) {
-    anchor = widgets.findIndex((item) => item?.name === name);
+  for (const name of anchors) {
+    anchor = widgets.findIndex((w) => w?.name === name);
     if (anchor >= 0) break;
   }
-  if (anchor < 0) widgets.push(widget);
-  else widgets.splice(anchor, 0, widget);
+  if (anchor < 0) widgets.push(widget); else widgets.splice(anchor, 0, widget);
 }
-
-function moveWidgetAfter(node, widget, anchorName) {
-  const widgets = node.widgets;
-  if (!Array.isArray(widgets) || !widget) return;
-  const current = widgets.indexOf(widget);
-  if (current >= 0) widgets.splice(current, 1);
-  const anchor = widgets.findIndex((item) => item?.name === anchorName);
-  if (anchor < 0) widgets.push(widget);
-  else widgets.splice(anchor + 1, 0, widget);
+function getGraphLink(graph, id) {
+  if (!graph || id == null) return null;
+  return graph.links?.[id] || graph._links?.get?.(id) || graph.links?.[String(id)] || null;
 }
-
-function getGraphLink(graph, linkId) {
-  if (!graph || linkId == null) return null;
-  return graph.links?.[linkId]
-    || graph._links?.get?.(linkId)
-    || graph.links?.[String(linkId)]
-    || null;
-}
-
-function nodeType(node) {
-  return String(node?.type || node?.constructor?.type || node?.comfyClass || node?.constructor?.comfyClass || "").toLowerCase();
-}
-
 function normalizeType(type) {
   const value = String(type || "").toUpperCase();
   return value === "TEXT" ? "STRING" : value;
 }
-
+function nodeType(node) {
+  return String(node?.type || node?.constructor?.type || node?.comfyClass || node?.constructor?.comfyClass || "").toLowerCase();
+}
 function resolveOriginType(graph, linkId, seen = new Set()) {
   if (linkId == null || seen.has(linkId)) return null;
   seen.add(linkId);
@@ -181,13 +185,10 @@ function resolveOriginType(graph, linkId, seen = new Set()) {
   type = normalizeType(output?.type);
   return TYPE_WIDGETS[type] ? type : null;
 }
-
 function connectedType(node) {
-  const input = node.inputs?.find((item) => item?.name === "data");
-  if (!input || input.link == null) return null;
-  return resolveOriginType(node.graph || app.graph, input.link);
+  const input = node.inputs?.find((i) => i?.name === "data");
+  return input?.link == null ? null : resolveOriginType(node.graph || app.graph, input.link);
 }
-
 function resizeToContent(node) {
   try {
     const measured = node.computeSize?.();
@@ -196,132 +197,84 @@ function resizeToContent(node) {
   node.setDirtyCanvas?.(true, true);
   app.graph?.setDirtyCanvas?.(true, true);
 }
-
-function makeSectionWidget(node, key) {
+function makeSection(node, key) {
   node.__terrySaveSections ||= {};
   if (node.__terrySaveSections[key] || typeof node.addDOMWidget !== "function") return node.__terrySaveSections[key];
-
   const element = document.createElement("div");
   element.style.boxSizing = "border-box";
   element.style.width = "100%";
   element.style.pointerEvents = "none";
-
   if (key === "divider") {
-    element.style.height = "30px";
-    element.style.margin = "2px 8px";
+    element.style.height = "32px";
+    element.style.margin = "0 10px";
     element.style.borderTop = "1px solid color-mix(in srgb, var(--fg-color, #aaa) 24%, transparent)";
-    element.style.transform = "translateY(14px)";
+    element.style.transform = "translateY(16px)";
   } else {
-    element.style.height = "28px";
-    element.style.padding = "7px 10px 3px 8px";
+    element.style.height = "30px";
+    element.style.padding = "8px 10px 3px";
     element.style.fontSize = "12px";
     element.style.fontWeight = "700";
     element.style.letterSpacing = ".02em";
     element.style.color = "color-mix(in srgb, var(--fg-color, #ddd) 82%, transparent)";
   }
-
   const widget = node.addDOMWidget(`terry_save_${key}`, "div", element, { serialize: false, hideOnZoom: false });
-  widget.computeSize = function(width) {
-    if (this.hidden) return [0, -4];
-    return [width ?? 0, key === "divider" ? 34 : 30];
-  };
-  const section = { element, widget };
-  node.__terrySaveSections[key] = section;
-  return section;
+  widget.computeSize = function(width) { return this.hidden ? [0, -4] : [width ?? 0, key === "divider" ? 36 : 32]; };
+  return node.__terrySaveSections[key] = { element, widget };
 }
-
-function updateSectionLabels(node, type) {
-  const media = makeSectionWidget(node, "media");
-  const file = makeSectionWidget(node, "file");
-  makeSectionWidget(node, "divider");
-  const names = {
-    IMAGE: t("图片参数", "Image Parameters"),
-    AUDIO: t("音频参数", "Audio Parameters"),
-    VIDEO: t("视频参数", "Video Parameters"),
-    STRING: t("文本参数", "Text Parameters"),
-  };
-  media.element.textContent = names[type] || "";
+function updateSections(node, type) {
+  const media = makeSection(node, "media");
+  const divider = makeSection(node, "divider");
+  const file = makeSection(node, "file");
+  const labels = { IMAGE: t("图片参数", "Image Parameters"), AUDIO: t("音频参数", "Audio Parameters"), VIDEO: t("视频参数", "Video Parameters"), STRING: t("文本参数", "Text Parameters") };
+  media.element.textContent = labels[type] || "";
   file.element.textContent = t("文件名", "Filename");
-
   media.widget.hidden = !type;
   media.widget.options ||= {};
   media.widget.options.hidden = !type;
   media.element.style.display = type ? "block" : "none";
-}
-
-function arrangeWidgets(node, type) {
-  const media = makeSectionWidget(node, "media");
-  const divider = makeSectionWidget(node, "divider");
-  const file = makeSectionWidget(node, "file");
-
   if (type) moveWidgetBefore(node, media.widget, TYPE_WIDGETS[type]);
   moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
   moveWidgetBefore(node, file.widget, FILE_WIDGETS);
-
-  // Guarantee divider -> Filename heading -> filename fields order.
-  const widgets = node.widgets;
-  const fileIndex = widgets.indexOf(file.widget);
-  const dividerIndex = widgets.indexOf(divider.widget);
-  if (dividerIndex > fileIndex && fileIndex >= 0) {
-    widgets.splice(dividerIndex, 1);
-    widgets.splice(fileIndex, 0, divider.widget);
-  }
+  const widgets = node.widgets || [];
+  const d = widgets.indexOf(divider.widget), f = widgets.indexOf(file.widget);
+  if (d > f && f >= 0) { widgets.splice(d, 1); widgets.splice(f, 0, divider.widget); }
 }
-
 function applyDynamicPanel(node) {
   for (const name of ALL_TYPE_WIDGETS) setWidgetHidden(node, name, true);
   const type = connectedType(node);
   if (type) for (const name of TYPE_WIDGETS[type]) setWidgetHidden(node, name, false);
-
   const sequence = getWidget(node, "append_sequence")?.value === true;
   setWidgetHidden(node, "sequence_start", !sequence);
   setWidgetHidden(node, "sequence_padding", !sequence);
-
-  if (type === "AUDIO") {
-    setWidgetHidden(node, "audio_quality", getWidget(node, "audio_format")?.value === "flac");
-  }
+  if (type === "AUDIO") setWidgetHidden(node, "audio_quality", getWidget(node, "audio_format")?.value === "flac");
   if (type === "VIDEO") {
     const codec = getWidget(node, "video_codec")?.value;
     const encoding = getWidget(node, "video_encoding")?.value;
     setWidgetHidden(node, "video_encoding", codec !== "h264");
     setWidgetHidden(node, "video_crf", !(codec === "h264" && encoding === "re-encode"));
   }
-  if (type === "STRING") {
-    setWidgetHidden(node, "text_custom_extension", getWidget(node, "text_extension")?.value !== "custom");
-  }
-
-  updateSectionLabels(node, type);
-  arrangeWidgets(node, type);
+  if (type === "STRING") setWidgetHidden(node, "text_custom_extension", getWidget(node, "text_extension")?.value !== "custom");
+  updateSections(node, type);
   resizeToContent(node);
 }
-
 function hookWidget(node, name) {
-  const widget = getWidget(node, name);
-  if (!widget || widget.__terryDynamicPanelHooked) return;
-  widget.__terryDynamicPanelHooked = true;
-  const original = widget.callback;
-  widget.callback = function(...args) {
-    const result = original?.apply(this, args);
-    queueMicrotask(() => applyDynamicPanel(node));
-    return result;
-  };
+  const w = getWidget(node, name);
+  if (!w || w.__terryDynamicPanelHooked) return;
+  w.__terryDynamicPanelHooked = true;
+  const old = w.callback;
+  w.callback = function(...args) { const result = old?.apply(this, args); queueMicrotask(() => applyDynamicPanel(node)); return result; };
 }
-
-function schedulePanelRefresh(node) {
+function schedule(node) {
   queueMicrotask(() => applyDynamicPanel(node));
   requestAnimationFrame(() => applyDynamicPanel(node));
   setTimeout(() => applyDynamicPanel(node), 50);
   setTimeout(() => applyDynamicPanel(node), 180);
 }
-
 function initNode(node) {
-  for (const widget of node.widgets || []) installHideAdapter(widget);
+  for (const w of node.widgets || []) installHideAdapter(w);
   for (const name of ["append_sequence", "audio_format", "video_codec", "video_encoding", "text_extension"]) hookWidget(node, name);
-  makeSectionWidget(node, "media");
-  makeSectionWidget(node, "divider");
-  makeSectionWidget(node, "file");
-  applyDynamicPanel(node);
-  schedulePanelRefresh(node);
+  makeSection(node, "media"); makeSection(node, "divider"); makeSection(node, "file");
+  applyDynamicPanel(node); schedule(node);
 }
 
 app.registerExtension({
@@ -329,34 +282,17 @@ app.registerExtension({
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== NODE_ID) return;
     const created = nodeType.prototype.onNodeCreated;
-    nodeType.prototype.onNodeCreated = function() {
-      const result = created?.apply(this, arguments);
-      initNode(this);
-      return result;
-    };
+    nodeType.prototype.onNodeCreated = function() { const r = created?.apply(this, arguments); initNode(this); return r; };
     const connections = nodeType.prototype.onConnectionsChange;
-    nodeType.prototype.onConnectionsChange = function() {
-      const result = connections?.apply(this, arguments);
-      schedulePanelRefresh(this);
-      return result;
-    };
+    nodeType.prototype.onConnectionsChange = function() { const r = connections?.apply(this, arguments); schedule(this); return r; };
     const configure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function() {
-      const result = configure?.apply(this, arguments);
-      queueMicrotask(() => initNode(this));
-      return result;
-    };
+    nodeType.prototype.onConfigure = function() { const r = configure?.apply(this, arguments); queueMicrotask(() => initNode(this)); return r; };
   },
-  nodeCreated(node) {
-    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node));
-  },
-  loadedGraphNode(node) {
-    if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node));
-  },
+  nodeCreated(node) { if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node)); },
+  loadedGraphNode(node) { if (node?.comfyClass === NODE_ID || node?.constructor?.type === NODE_ID) queueMicrotask(() => initNode(node)); },
 });
 ''', encoding='utf-8')
 
-          # Update locale metadata.
           for lang in ('zh', 'en'):
               path = root / 'locales' / lang / 'nodeDefs.json'
               data = json.loads(path.read_text(encoding='utf-8'))
@@ -367,11 +303,10 @@ app.registerExtension({
                   inputs['date_format'] = {"name": "日期格式", "tooltip": "文件名中的 %date% 按所选格式替换；选择 none 时不加入日期。"}
                   inputs['filename_template'] = {"name": "文件名", "tooltip": "可包含子文件夹，例如 project/shot_%date%。%date% 会按日期格式替换。"}
               else:
-                  inputs['date_format'] = {"name": "Date format", "tooltip": "Replaces %date% in the filename using the selected format; choose none for no date."}
+                  inputs['date_format'] = {"name": "Date format", "tooltip": "Replaces %date% using the selected format; choose none for no date."}
                   inputs['filename_template'] = {"name": "Filename", "tooltip": "May include subfolders, e.g. project/shot_%date%. %date% uses the selected date format."}
               path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
 
-          # Remove this one-time workflow before committing.
           (root / '.github/workflows/refactor-enhanced-file-save.yml').unlink()
 
       - name: Commit refactor
