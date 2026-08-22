@@ -9,9 +9,10 @@ const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const UNPACK_LANES_PROPERTY = "terry_wire_bus_lane_ids";
 const LANE_FIELD = "terry_lane_id";
 const COMPACT_NODE_WIDTH = 112;
-const COMPACT_NODE_MIN_HEIGHT = 280;
-const COMPACT_NODE_HEADER_HEIGHT = 160;
-const COMPACT_NODE_LANE_HEIGHT = 40;
+const COMPACT_NODE_MIN_HEIGHT = 160;
+const COMPACT_NODE_HEADER_HEIGHT = 80;
+const COMPACT_NODE_LANE_HEIGHT = 26;
+const COMPACT_NODE_SLOT_PADDING = 56;
 
 let laneSequence = 0;
 
@@ -420,12 +421,28 @@ function compactBusNodeHeight(laneCount) {
   );
 }
 
+function compactBusNodeMinimumHeight(node, laneCount) {
+  const slotHeight = Math.max(16, Number(globalThis.LiteGraph?.NODE_SLOT_HEIGHT) || 20);
+  const visibleSlots = Math.max(1, Number(laneCount) || 0) + (isPack(node) ? 1 : 0);
+  return COMPACT_NODE_SLOT_PADDING + visibleSlots * slotHeight;
+}
+
 function resizeCompactBusNode(node, laneCount) {
   if (!node) return;
-  const minHeight = compactBusNodeHeight(laneCount);
+  const minHeight = compactBusNodeMinimumHeight(node, laneCount);
+  const preferredHeight = Math.max(minHeight, compactBusNodeHeight(laneCount));
+  const initialized = node.__terryBusLayoutInitialized === true;
+  const currentWidth = Number(node.size?.[0]) || COMPACT_NODE_WIDTH;
+  const currentHeight = Number(node.size?.[1]) || preferredHeight;
+  const previousPreferredHeight = Number(node.__terryBusPreferredHeight) || preferredHeight;
+  const customHeight = initialized && Math.abs(currentHeight - previousPreferredHeight) > 0.5;
+  const width = initialized ? Math.max(COMPACT_NODE_WIDTH, currentWidth) : COMPACT_NODE_WIDTH;
+  const height = customHeight ? Math.max(minHeight, currentHeight) : preferredHeight;
   node.__terryBusCompactWidth = COMPACT_NODE_WIDTH;
   node.__terryBusMinHeight = minHeight;
-  node.setSize?.([COMPACT_NODE_WIDTH, minHeight]);
+  node.__terryBusPreferredHeight = preferredHeight;
+  node.__terryBusLayoutInitialized = true;
+  node.setSize?.([width, height]);
 }
 
 function syncUnpack(unpack, force = false) {
@@ -637,6 +654,17 @@ app.registerExtension({
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData.name !== PACK_TYPE && nodeData.name !== UNPACK_TYPE) return;
     const isPackDef = nodeData.name === PACK_TYPE;
+
+    const originalComputeSize = nodeType.prototype.computeSize;
+    nodeType.prototype.computeSize = function () {
+      const size = originalComputeSize?.apply?.(this, arguments) || [COMPACT_NODE_WIDTH, 0];
+      const laneCount = isPackDef
+        ? Math.max(0, Number(this.inputs?.length || 0) - 1)
+        : Number(this.outputs?.length || 0);
+      size[0] = COMPACT_NODE_WIDTH;
+      size[1] = Math.max(Number(size[1]) || 0, compactBusNodeMinimumHeight(this, laneCount));
+      return size;
+    };
 
     const originalCreated = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
