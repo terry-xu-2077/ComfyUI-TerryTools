@@ -126,6 +126,25 @@ function pointForInput(node, slot) {
   return [Number(node?.pos?.[0] || 0), Number(node?.pos?.[1] || 0) + 40 + slot * 20];
 }
 
+function nodeTitleHeight() {
+  return Math.max(0, Number(globalThis.LiteGraph?.NODE_TITLE_HEIGHT) || 30);
+}
+
+function nodeVisualCenterY(node) {
+  // LiteGraph's position starts below the title while size covers the body.
+  // The full visible bounds therefore run from posY - titleHeight to posY + height.
+  return Number(node?.pos?.[1] || 0) + (Number(node?.size?.[1] || 0) - nodeTitleHeight()) * 0.5;
+}
+
+function centeredLanePosition(node, slot, count, isInput) {
+  const spacing = Math.max(12, Number(globalThis.LiteGraph?.NODE_SLOT_HEIGHT) || 20);
+  const index = Math.max(0, Number(slot) || 0);
+  const total = Math.max(1, Number(count) || 0);
+  const x = Number(node?.pos?.[0] || 0) + (isInput ? 0 : Number(node?.size?.[0] || 0));
+  const y = nodeVisualCenterY(node) + (index - (total - 1) * 0.5) * spacing;
+  return [x, y];
+}
+
 function busColor(link = null) {
   return (
     link?.color ||
@@ -312,13 +331,17 @@ function refreshVuePortStyle() {
   const unpacks = [];
   const packRows = [];
   const unpackRows = [];
+  const packInputGroups = [];
+  const unpackOutputGroups = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
     if (nodeType(node) === PACK_TYPE) {
+      packInputGroups.push(`${root} :has(> .lg-slot--input)`);
       packRows.push(`${root} .lg-slot--output`);
       packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
     } else {
+      unpackOutputGroups.push(`${root} :has(> .lg-slot--output)`);
       unpackRows.push(`${root} .lg-slot--input`);
       unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
     }
@@ -331,6 +354,20 @@ function refreshVuePortStyle() {
   ];
 
   style.textContent = selectors.length ? `
+${packInputGroups.join(",\n")}{
+  position:absolute !important;
+  left:0;
+  top:50% !important;
+  transform:translateY(-50%);
+  z-index:3;
+}
+${unpackOutputGroups.join(",\n")}{
+  position:absolute !important;
+  right:0;
+  top:50% !important;
+  transform:translateY(-50%);
+  z-index:3;
+}
 ${packRows.join(",\n")}{
   position:absolute !important;
   right:0;
@@ -393,7 +430,10 @@ function patchBusNode(node) {
   const originalOutputPos = node.getOutputPos;
   node.getInputPos = function (slot) {
     if (nodeType(this) === UNPACK_TYPE && Number(slot) === 0) {
-      return [Number(this.pos?.[0] || 0), Number(this.pos?.[1] || 0) + Number(this.size?.[1] || 0) * 0.5];
+      return [Number(this.pos?.[0] || 0), nodeVisualCenterY(this)];
+    }
+    if (nodeType(this) === PACK_TYPE) {
+      return centeredLanePosition(this, slot, this.inputs?.length || 0, true);
     }
     return originalInputPos?.apply?.(this, arguments);
   };
@@ -401,8 +441,11 @@ function patchBusNode(node) {
     if (nodeType(this) === PACK_TYPE && Number(slot) === 0) {
       return [
         Number(this.pos?.[0] || 0) + Number(this.size?.[0] || 0),
-        Number(this.pos?.[1] || 0) + Number(this.size?.[1] || 0) * 0.5,
+        nodeVisualCenterY(this),
       ];
+    }
+    if (nodeType(this) === UNPACK_TYPE) {
+      return centeredLanePosition(this, slot, this.outputs?.length || 0, false);
     }
     return originalOutputPos?.apply?.(this, arguments);
   };
