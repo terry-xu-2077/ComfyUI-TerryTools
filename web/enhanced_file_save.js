@@ -23,14 +23,12 @@ const VALUE_WIDGETS = [...ALL_TYPE_WIDGETS, ...FILE_WIDGETS];
 function getWidget(node, name) {
   return node.widgets?.find((widget) => widget?.name === name) || null;
 }
-
 function setWidgetValue(node, name, value) {
   const widget = getWidget(node, name);
   if (!widget) return;
   widget.value = value;
   if (widget._state) widget._state.value = value;
 }
-
 function namedValues(node) {
   const values = {};
   for (const name of VALUE_WIDGETS) {
@@ -39,7 +37,6 @@ function namedValues(node) {
   }
   return values;
 }
-
 function restoreNamedValues(node, values) {
   if (!values || typeof values !== "object") return false;
   let restored = false;
@@ -50,26 +47,25 @@ function restoreNamedValues(node, values) {
   }
   return restored;
 }
-
 function repairCorruptedValues(node) {
   const filename = getWidget(node, "filename_template");
   const date = getWidget(node, "date_format");
   const rawDate = String(date?.value ?? "");
   if (date && !DATE_FORMAT_VALUES.has(rawDate)) {
     const currentFilename = String(filename?.value ?? "").trim();
-    const filenameLooksInvalid = !currentFilename || ["auto", "h264", "re-encode"].includes(currentFilename);
+    const filenameLooksInvalid = !currentFilename || ["auto","h264","re-encode"].includes(currentFilename);
     const misplacedLooksLikeFilename = rawDate.includes("%date%") || rawDate.includes("/") || rawDate.includes("\\");
     if (filename && filenameLooksInvalid && misplacedLooksLikeFilename) setWidgetValue(node, "filename_template", rawDate);
     setWidgetValue(node, "date_format", DEFAULT_DATE_FORMAT);
   }
   const filenameValue = String(getWidget(node, "filename_template")?.value ?? "").trim();
-  if (!filenameValue || ["auto", "h264", "re-encode"].includes(filenameValue)) setWidgetValue(node, "filename_template", "ComfyUI_%date%");
+  if (!filenameValue || ["auto","h264","re-encode"].includes(filenameValue)) setWidgetValue(node, "filename_template", "ComfyUI_%date%");
   const videoFormat = getWidget(node, "video_format");
   if (videoFormat && !String(videoFormat.value ?? "").trim()) setWidgetValue(node, "video_format", "auto");
   const videoCodec = getWidget(node, "video_codec");
-  if (videoCodec && !["auto", "h264"].includes(String(videoCodec.value ?? ""))) setWidgetValue(node, "video_codec", "auto");
+  if (videoCodec && !["auto","h264"].includes(String(videoCodec.value ?? ""))) setWidgetValue(node, "video_codec", "auto");
   const videoEncoding = getWidget(node, "video_encoding");
-  if (videoEncoding && !["auto", "re-encode"].includes(String(videoEncoding.value ?? ""))) setWidgetValue(node, "video_encoding", "auto");
+  if (videoEncoding && !["auto","re-encode"].includes(String(videoEncoding.value ?? ""))) setWidgetValue(node, "video_encoding", "auto");
   const append = getWidget(node, "append_sequence");
   if (append && typeof append.value !== "boolean") setWidgetValue(node, "append_sequence", false);
   const start = getWidget(node, "sequence_start");
@@ -87,7 +83,6 @@ function installHideAdapter(widget) {
     return original?.(width) || [width ?? 0, 20];
   };
 }
-
 function setWidgetHidden(node, name, hidden) {
   const widget = getWidget(node, name);
   if (!widget) return;
@@ -97,7 +92,6 @@ function setWidgetHidden(node, name, hidden) {
   widget.options.hidden = hidden;
   if (widget.element?.style) widget.element.style.display = hidden ? "none" : "";
 }
-
 function moveWidgetBefore(node, widget, anchorNames) {
   const widgets = node.widgets;
   if (!Array.isArray(widgets) || !widget) return;
@@ -129,12 +123,14 @@ function makeDivider(node) {
   Object.assign(line.style, {
     position: "absolute",
     top: "13px",
-    left: "0",
-    width: "100%",
+    // Nodes 2.0 lays DOM widgets out in the right/value column. The value
+    // column is about two thirds of the full row, so half of that width is the
+    // missing label column. Extend left by 50% and total width to 150%.
+    left: "-50%",
+    width: "150%",
     height: "1px",
     background: "rgba(180,180,180,.28)",
     pointerEvents: "none",
-    display: "none",
   });
   element.appendChild(line);
 
@@ -152,25 +148,6 @@ function makeDivider(node) {
   return node.__terrySaveDivider;
 }
 
-function alignNodes2Divider(node) {
-  const divider = node.__terrySaveDivider;
-  if (!divider || divider.widget.hidden) return;
-  requestAnimationFrame(() => {
-    const element = divider.element;
-    const root = element.closest?.("[data-node-id]");
-    if (!root) {
-      divider.line.style.display = "none";
-      return;
-    }
-    const rootRect = root.getBoundingClientRect();
-    const elementRect = element.getBoundingClientRect();
-    const inset = 12;
-    divider.line.style.left = `${rootRect.left + inset - elementRect.left}px`;
-    divider.line.style.width = `${Math.max(0, rootRect.width - inset * 2)}px`;
-    divider.line.style.display = "block";
-  });
-}
-
 function dividerY(node) {
   const widget = node.__terrySaveDivider?.widget;
   if (!widget || widget.hidden) return null;
@@ -180,7 +157,6 @@ function dividerY(node) {
   }
   return null;
 }
-
 function drawClassicDivider(node, ctx) {
   const y = dividerY(node);
   if (y == null || !ctx) return;
@@ -264,7 +240,6 @@ function applyDynamicPanel(node) {
     divider.widget.options.hidden = !type;
     divider.element.style.display = type ? "block" : "none";
     moveWidgetBefore(node, divider.widget, FILE_WIDGETS);
-    if (type) alignNodes2Divider(node);
   }
 
   resizeToContent(node);
