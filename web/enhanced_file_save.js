@@ -247,9 +247,9 @@ function makeSection(node, key) {
     element.style.height = "30px";
     element.style.padding = "8px 10px 3px";
     element.style.fontSize = "12px";
-    element.style.fontWeight = "700";
+    element.style.fontWeight = "400";
     element.style.letterSpacing = ".02em";
-    element.style.color = "color-mix(in srgb, var(--fg-color, #ddd) 82%, transparent)";
+    element.style.color = "color-mix(in srgb, var(--fg-color, #ddd) 52%, transparent)";
   }
 
   const widget = node.addDOMWidget(`terry_save_${key}`, "div", element, {
