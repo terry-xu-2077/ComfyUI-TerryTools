@@ -338,6 +338,7 @@ function refreshVuePortStyle() {
   const packInputGroups = [];
   const unpackOutputGroups = [];
   const nodeLayoutRules = [];
+  const packEdgeMasks = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
@@ -359,6 +360,7 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
 }
 `);
     if (nodeType(node) === PACK_TYPE) {
+      packEdgeMasks.push(`${expandedRoot}::after`);
       packInputGroups.push(`${root} :has(> .lg-slot--input)`);
       packRows.push(`${root} .lg-slot--output`);
       packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
@@ -377,6 +379,18 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
 
   style.textContent = selectors.length ? `
 ${nodeLayoutRules.join("\n")}
+${packEdgeMasks.length ? `${packEdgeMasks.join(",\n")}{
+  content:"";
+  position:absolute;
+  top:${nodeTitleHeight()}px;
+  right:-5px;
+  bottom:0;
+  width:10px;
+  background:var(--node-component-surface,#222);
+  border-bottom-right-radius:8px;
+  pointer-events:none;
+  z-index:3;
+}` : ""}
 ${packInputGroups.join(",\n")}{
   position:absolute !important;
   left:0;

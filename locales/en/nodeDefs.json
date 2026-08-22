@@ -59,13 +59,13 @@
     "outputs": {"0": {"name": "H3 Prompt"}}
   },
   "TerryWireBusPack": {
-    "display_name": "Terry Wire Bus Pack",
+    "display_name": "Bus In",
     "description": "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
     "inputs": {"wire": {"name": "Add Wire"}},
     "outputs": {"0": {"name": "Bus"}}
   },
   "TerryWireBusUnpack": {
-    "display_name": "Terry Wire Bus Unpack",
+    "display_name": "Bus Out",
     "description": "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
     "inputs": {"bus": {"name": "Bus"}}
   }

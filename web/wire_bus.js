@@ -41,8 +41,8 @@ function isChineseLocale() {
 function labels() {
   if (isChineseLocale()) {
     return {
-      packTitle: "Terry 线束汇总",
-      unpackTitle: "Terry 线束还原",
+      packTitle: "总线入",
+      unpackTitle: "总线出",
       packDescription: "将任意数量、任意类型的连接汇总为一根虚拟总线，支持 KJNodes Get/Set。",
       unpackDescription: "从虚拟总线自动恢复原始连接的数量、类型和顺序，支持 KJNodes Get/Set。",
       category: "TerryTools/线束整理",
@@ -53,8 +53,8 @@ function labels() {
     };
   }
   return {
-    packTitle: "Terry Wire Bus Pack",
-    unpackTitle: "Terry Wire Bus Unpack",
+    packTitle: "Bus In",
+    unpackTitle: "Bus Out",
     packDescription: "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
     unpackDescription: "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
     category: "TerryTools/Wire Management",
@@ -671,6 +671,7 @@ app.registerExtension({
       const result = originalCreated?.apply(this, arguments);
       this.isVirtualNode = true;
       this.serialize_widgets = false;
+      this.resizable = false;
       localizeFixedPorts(this, true);
       if (isPackDef) {
         const first = this.inputs?.[0];
@@ -720,6 +721,7 @@ app.registerExtension({
     const originalConfigure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = originalConfigure?.apply(this, arguments);
+      this.resizable = false;
       localizeFixedPorts(this, true);
       if (isPackDef) queueMicrotask(() => refreshPackSlots(this));
       else queueMicrotask(() => syncUnpack(this, true));
