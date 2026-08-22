@@ -1,10 +1,6 @@
 import { app } from "../../scripts/app.js";
 
 const NODE_TITLES = {
-  EnhancedFileSave: {
-    en: "Terry Enhanced File Save",
-    zh: "Terry 增强文件保存",
-  },
   TerryFileSave: {
     en: "Terry File Save",
     zh: "Terry 文件保存",
