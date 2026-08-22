@@ -5,16 +5,16 @@ from comfy_api.latest import Types, io
 from .enhanced_file_save import EnhancedFileSave
 
 
-class FileSaveNoSequence(EnhancedFileSave):
+class FileSave(EnhancedFileSave):
     @classmethod
     def define_schema(cls):
         return io.Schema(
-            node_id="TerryFileSaveNoSequence",
+            node_id="TerryFileSave",
             display_name="Terry 文件保存",
             category="TerryTools/Save",
             description=(
                 "按输入的精确文件名保存 VIDEO / STRING / IMAGE / AUDIO。"
-                "可选择在文件名尾部添加序列号；关闭时目标文件已存在则直接覆盖。"
+                "可选择在文件名尾部添加序号；关闭时目标文件已存在则直接覆盖。"
                 "日期等命名内容可由上游字符串节点生成后接入文件名。"
             ),
             is_output_node=True,
