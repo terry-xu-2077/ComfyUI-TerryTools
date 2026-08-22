@@ -3,6 +3,8 @@ import { app } from "../../scripts/app.js";
 const BUS_TYPE = "TERRY_WIRE_BUS";
 const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
+const GET_TYPE = "GetNode";
+const SET_TYPE = "SetNode";
 const VUE_STYLE_ID = "terry-wire-bus-vue-port-style";
 
 function nodeType(node) {
@@ -33,6 +35,20 @@ function allLinks(graph) {
   return out;
 }
 
+function graphLink(graph, linkId) {
+  if (!graph || linkId == null) return null;
+  for (const bag of [graph?.links, graph?._links]) {
+    if (!bag) continue;
+    if (typeof bag.get === "function") {
+      const found = bag.get(linkId) ?? bag.get(String(linkId));
+      if (found) return found;
+    }
+    const found = bag[linkId] ?? bag[String(linkId)];
+    if (found) return found;
+  }
+  return null;
+}
+
 function linkNodes(graph, link) {
   const originId = link?.origin_id ?? link?.originId;
   const targetId = link?.target_id ?? link?.targetId;
@@ -42,6 +58,49 @@ function linkNodes(graph, link) {
     originSlot: Number(link?.origin_slot ?? link?.originSlot ?? 0) || 0,
     targetSlot: Number(link?.target_slot ?? link?.targetSlot ?? 0) || 0,
   };
+}
+
+function graphAncestors(graph) {
+  if (!graph) return [];
+  const root = graph.rootGraph || app.graph || graph;
+  if (graph === root) return [graph];
+  const chain = [graph];
+  const seen = new Set(chain);
+  let current = graph;
+  while (current && current !== root) {
+    let parent = current.parent || current._parent || current._subgraph_node?.graph || null;
+    if (!parent && root?._nodes) {
+      for (const node of root._nodes) {
+        if (node?.subgraph === current) {
+          parent = root;
+          break;
+        }
+      }
+    }
+    if (!parent || seen.has(parent)) break;
+    seen.add(parent);
+    chain.push(parent);
+    current = parent;
+  }
+  if (root && !chain.includes(root)) chain.push(root);
+  return chain;
+}
+
+function variableName(node) {
+  return node?.widgets?.[0]?.value ?? node?.properties?.name ?? null;
+}
+
+function findSetter(getNode) {
+  const name = variableName(getNode);
+  if (!name) return null;
+  for (const graph of graphAncestors(getNode.graph || app.graph)) {
+    for (const node of graph?._nodes || []) {
+      if (nodeType(node) === SET_TYPE && variableName(node) === name) {
+        return { node, graph };
+      }
+    }
+  }
+  return null;
 }
 
 function isBusLink(graph, link) {
@@ -100,11 +159,25 @@ function sameColor(a, b) {
 }
 
 function upstreamPack(graph, node, seen = new Set()) {
-  if (!node) return null;
-  if (nodeType(node) === PACK_TYPE) return node;
-  const key = String(node.id ?? node);
+  if (!node || !graph) return null;
+  if (nodeType(node) === PACK_TYPE) return { node, graph };
+
+  const key = `${graph?.id || "g"}:${String(node.id ?? node)}`;
   if (seen.has(key)) return null;
   seen.add(key);
+
+  if (nodeType(node) === GET_TYPE) {
+    const setter = findSetter(node);
+    const setterLinkId = setter?.node?.inputs?.[0]?.link;
+    if (setter && setterLinkId != null) {
+      const setterLink = graphLink(setter.graph, setterLinkId);
+      if (setterLink) {
+        const { origin } = linkNodes(setter.graph, setterLink);
+        const found = upstreamPack(setter.graph, origin, seen);
+        if (found) return found;
+      }
+    }
+  }
 
   const incoming = allLinks(graph)
     .filter((link) => {
@@ -144,8 +217,10 @@ function packInputColors(graph, packNode, fallback) {
 
 function lightLaneColors(graph, busLink) {
   const { origin } = linkNodes(graph, busLink);
-  const pack = upstreamPack(graph, origin);
-  return packInputColors(graph, pack, busColor(busLink));
+  const packRef = upstreamPack(graph, origin);
+  return packRef
+    ? packInputColors(packRef.graph, packRef.node, busColor(busLink))
+    : [busColor(busLink), busColor(busLink), busColor(busLink)];
 }
 
 function drawBusLane(ctx, start, end, color, width, offset, alpha) {
