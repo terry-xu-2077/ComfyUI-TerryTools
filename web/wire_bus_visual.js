@@ -457,13 +457,16 @@ function refreshVuePortStyle() {
   const wiredBadges = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
+    const type = nodeType(node);
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
     const expandedRoot = `${root}:not([data-collapsed])`;
     const compactWidth = Math.max(80, Number(node?.__terryBusCompactWidth) || 112);
     const minBodyHeight = Math.max(0, Number(node?.__terryBusMinHeight) || Number(node?.size?.[1]) || 0);
     const bodyHeight = Math.max(minBodyHeight, Number(node?.size?.[1]) || 0);
     const nodeHeight = bodyHeight + nodeTitleHeight();
-    nodeEdgeMasks.push(`${expandedRoot}::after`);
+    if (type === PACK_TYPE || type === WIRELESS_PACK_TYPE) {
+      nodeEdgeMasks.push(`${expandedRoot}::after`);
+    }
     nodeLayoutRules.push(`
 ${expandedRoot}{
   --min-node-width:${compactWidth}px !important;
@@ -494,7 +497,6 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
   max-width:${compactWidth}px !important;
 }
 `);
-    const type = nodeType(node);
     if (type === PACK_TYPE) {
       packInputGroups.push(`${expandedRoot} :has(> .lg-slot--input)`);
       packRows.push(`${expandedRoot} .lg-slot--output`);
@@ -560,9 +562,10 @@ ${nodeEdgeMasks.length ? `${nodeEdgeMasks.join(",\n")}{
   content:"";
   position:absolute;
   top:calc(${nodeTitleHeight()}px + 4px);
-  right:0;
+  right:-6px;
   bottom:8px;
-  width:6px;
+  width:12px;
+  border-radius:0 6px 6px 0;
   background:var(--component-node-background,var(--node-component-surface,#222));
   pointer-events:none;
   z-index:3;
