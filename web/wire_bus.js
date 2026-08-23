@@ -871,7 +871,6 @@ function refreshPackSlots(pack) {
   }
 
   resizeCompactBusNode(pack, entries.length);
-  pack.__terryBusRefreshVisual?.();
   queueMicrotask(syncAllUnpacks);
   pack.graph?.setDirtyCanvas?.(true, true);
 }

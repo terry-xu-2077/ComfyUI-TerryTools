@@ -9,6 +9,8 @@ const GET_TYPE = "GetNode";
 const SET_TYPE = "SetNode";
 const VUE_STYLE_ID = "terry-wire-bus-vue-port-style";
 const WIRELESS_WIDGET_HEIGHT = 38;
+const WIRELESS_CHANNEL_BACKGROUND = "#191a1c";
+const WIRELESS_CHANNEL_BORDER = "#373a40";
 
 function nodeType(node) {
   return String(
@@ -366,48 +368,6 @@ function wirelessChannelLabel(node) {
   ).trim();
 }
 
-function wirelessPublisher(node) {
-  if (!node) return null;
-  if (nodeType(node) === WIRELESS_PACK_TYPE) return node;
-  const channel = wirelessChannelLabel(node);
-  if (!channel) return null;
-  for (const graph of graphAncestors(node.graph || app.graph)) {
-    const pack = (graph?._nodes || []).find(
-      (candidate) => nodeType(candidate) === WIRELESS_PACK_TYPE
-        && wirelessChannelLabel(candidate) === channel
-    );
-    if (pack) return pack;
-  }
-  return null;
-}
-
-function parseColor(value) {
-  const text = String(value || "").trim();
-  const short = text.match(/^#([\da-f])([\da-f])([\da-f])$/i);
-  if (short) return short.slice(1).map((part) => Number.parseInt(part + part, 16));
-  const full = text.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})(?:[\da-f]{2})?$/i);
-  if (full) return full.slice(1).map((part) => Number.parseInt(part, 16));
-  const rgb = text.match(/^rgba?\(\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)\s*[, ]\s*(\d+(?:\.\d+)?)/i);
-  if (rgb) return rgb.slice(1).map((part) => Math.max(0, Math.min(255, Number(part))));
-  return null;
-}
-
-function darkenColor(value, factor, fallback = "#34373d") {
-  const rgb = parseColor(value) || parseColor(fallback);
-  return `#${rgb.map((part) => Math.round(part * factor).toString(16).padStart(2, "0")).join("")}`;
-}
-
-function wirelessChannelColors(node) {
-  const pack = wirelessPublisher(node);
-  const primary = pack
-    ? packInputColors(pack.graph, pack, busColor())[0]
-    : busColor();
-  return {
-    background: darkenColor(primary, 0.36),
-    border: darkenColor(primary, 0.68, "#6b7280"),
-  };
-}
-
 function drawCompactNodeTitle(ctx, node, titleHeight, size, fontStyle, selected) {
   const title = String(node?.getTitle?.() ?? node?.title ?? "");
   if (!title || !ctx?.fillText) return;
@@ -446,7 +406,6 @@ function drawCollapsedWirelessChannel(ctx, node) {
     || 112;
   const height = 26;
   const top = -6;
-  const colors = wirelessChannelColors(node);
 
   ctx.save();
   ctx.font = "11px Inter,system-ui,sans-serif";
@@ -454,10 +413,10 @@ function drawCollapsedWirelessChannel(ctx, node) {
   const width = Math.min(180, Math.max(46, textWidth + 18));
   const left = (collapsedWidth - width) * 0.5;
   bottomRoundedRect(ctx, left, top, width, height, 7);
-  ctx.fillStyle = colors.background;
+  ctx.fillStyle = WIRELESS_CHANNEL_BACKGROUND;
   ctx.fill();
   ctx.lineWidth = 1;
-  ctx.strokeStyle = colors.border;
+  ctx.strokeStyle = WIRELESS_CHANNEL_BORDER;
   strokeBottomRoundedRect(ctx, left, top, width, height, 7);
   ctx.fillStyle = "rgba(245,245,245,.88)";
   ctx.textAlign = "center";
@@ -537,7 +496,6 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
       wirelessBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
       const channel = wirelessChannelLabel(node);
       if (channel) {
-        const colors = wirelessChannelColors(node);
         collapsedWirelessChannelRules.push(`
 ${root}[data-collapsed]::before{
   content:${cssText(channel)};
@@ -549,14 +507,14 @@ ${root}[data-collapsed]::before{
   max-width:168px;
   height:26px;
   padding:5px 9px 0;
-  border:1px solid ${colors.border};
+  border:1px solid ${WIRELESS_CHANNEL_BORDER};
   border-top:0;
   border-top-left-radius:0;
   border-top-right-radius:0;
   border-bottom-right-radius:7px;
   border-bottom-left-radius:7px;
   box-sizing:border-box;
-  background:${colors.background};
+  background:${WIRELESS_CHANNEL_BACKGROUND};
   color:rgba(245,245,245,.88);
   font:11px/20px Inter,system-ui,sans-serif;
   text-align:center;
