@@ -964,14 +964,23 @@ function refreshPackSlots(pack) {
     if (input.link != null) syncConnectionType(pack.graph, input.link, input.type);
   }
 
-  const last = pack.inputs?.[pack.inputs.length - 1];
-  if (!last || last[LANE_FIELD] || last.link != null || last.type !== EMPTY_TYPE) {
-    const input = pack.addInput("wire", EMPTY_TYPE);
-    if (input) input.label = text.addWire;
+  const busOnlyMode = isWirelessPack(pack) && entries.some((entry) =>
+    entry.source?.type === BUS_TYPE && isWiredPack(entry.source.node)
+  );
+  if (busOnlyMode) {
+    for (let index = (pack.inputs?.length || 0) - 1; index >= 0; index--) {
+      if (isAddWireInput(pack.inputs[index])) pack.removeInput?.(index);
+    }
   } else {
-    last.name = "wire";
-    last.label = text.addWire;
-    last.type = EMPTY_TYPE;
+    const last = pack.inputs?.[pack.inputs.length - 1];
+    if (!last || last[LANE_FIELD] || last.link != null || last.type !== EMPTY_TYPE) {
+      const input = pack.addInput("wire", EMPTY_TYPE);
+      if (input) input.label = text.addWire;
+    } else {
+      last.name = "wire";
+      last.label = text.addWire;
+      last.type = EMPTY_TYPE;
+    }
   }
 
   const publishedEntries = isWirelessPack(pack) ? effectivePackLaneEntries(pack) : entries;
@@ -1246,9 +1255,16 @@ app.registerExtension({
         return effectivePackLaneEntries(this);
       };
       nodeType.prototype.onConnectInput = function (slot, type, output, originNode) {
-        return slot >= 0 && (type !== BUS_TYPE || (
-          isWirelessDef && (isWiredPack(originNode) || isReroute(originNode) || isGet(originNode))
-        ));
+        if (slot < 0) return false;
+        if (!isWirelessDef) return type !== BUS_TYPE;
+
+        const connectedBus = (this.inputs || []).findIndex((input) =>
+          input?.link != null && input.type === BUS_TYPE
+        );
+        if (connectedBus >= 0) return slot === connectedBus && type === BUS_TYPE;
+        if (type !== BUS_TYPE) return true;
+        if (!isWiredPack(originNode) && !isReroute(originNode) && !isGet(originNode)) return false;
+        return !(this.inputs || []).some((input, index) => index !== slot && input?.link != null);
       };
       if (!isWirelessDef) {
         nodeType.prototype.onConnectOutput = function (slot, type, input, targetNode) {
