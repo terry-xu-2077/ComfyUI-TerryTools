@@ -1,5 +1,4 @@
 import { app } from "../../scripts/app.js";
-import { api } from "../../scripts/api.js";
 
 function installStyle() {
   if (document.getElementById("terry-file-save-panel-style")) return;
@@ -25,13 +24,6 @@ function installStyle() {
 .terry-file-save-preview{flex:1 1 auto;width:100%;min-height:140px;max-width:100%;min-width:0;box-sizing:border-box;padding:0;display:flex;align-items:stretch;justify-content:center;overflow:hidden;color:var(--input-text,#ddd);font-family:Inter,system-ui,sans-serif}
 .terry-file-save-preview-content{width:100%;height:100%;min-width:0;min-height:130px;box-sizing:border-box;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(0,0,0,.13);overflow:auto;display:flex;align-items:center;justify-content:center}
 .terry-file-save-preview-empty{color:rgba(255,255,255,.29);font-size:12px;text-align:center;padding:18px;user-select:none}
-.terry-file-save-preview-gallery{width:100%;height:100%;min-height:130px;box-sizing:border-box;padding:6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:6px;align-items:center;justify-items:center}
-.terry-file-save-preview-gallery.is-single{display:flex;align-items:center;justify-content:center}
-.terry-file-save-preview-image{display:block;width:100%;max-width:100%;max-height:100%;min-width:0;object-fit:contain;border-radius:4px;background:#161616}
-.terry-file-save-preview-audios{width:100%;box-sizing:border-box;padding:12px;display:flex;flex-direction:column;gap:12px}
-.terry-file-save-preview-audio-item{width:100%;min-width:0;display:flex;flex-direction:column;gap:7px}
-.terry-file-save-preview-audio-name{font-size:11px;color:rgba(255,255,255,.66);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.terry-file-save-preview-audio{width:100%;height:36px;color-scheme:dark}
 .terry-file-save-preview-text{align-self:stretch;width:100%;min-height:130px;box-sizing:border-box;margin:0;padding:12px;color:#e5e7eb;background:transparent;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;overflow:auto}
 `;
   document.head.append(style);
@@ -39,6 +31,10 @@ function installStyle() {
 
 function getWidget(node, name) {
   return node?.widgets?.find((w) => w?.name === name) || null;
+}
+
+function usesNativeMediaPreview(node) {
+  return ["image", "video", "audio"].includes(node?.__terryFileSavePreview?.root?.dataset?.kind);
 }
 
 function hideNativeWidget(widget) {
@@ -205,21 +201,21 @@ export function installFileSavePanel(node, config) {
   const panelMinHeight = () => {
     const visibleRows = [...controls.values()].filter((item) => item.row.style.display !== "none").length;
     const visibleCards = [mediaCard, fileCard].filter((card) => card.style.display !== "none").length;
-    const nativeVideo = node.__terryFileSavePreview?.root?.dataset?.kind === "video";
+    const nativeMedia = usesNativeMediaPreview(node);
     return Math.max(
-      nativeVideo ? 0 : 220,
+      nativeMedia ? 0 : 220,
       visibleRows * 30
         + Math.max(0, visibleRows - visibleCards) * 7
         + visibleCards * 16
         + visibleCards * 9
-        + (nativeVideo ? 14 : 154),
+        + (nativeMedia ? 14 : 154),
     );
   };
   const dom = node.addDOMWidget(config.widgetName, config.widgetName, root, {
     serialize: false,
     hideOnZoom: false,
     getMinHeight: panelMinHeight,
-    getMaxHeight: () => node.__terryFileSavePreview?.root?.dataset?.kind === "video"
+    getMaxHeight: () => usesNativeMediaPreview(node)
       ? panelMinHeight()
       : Number.POSITIVE_INFINITY,
   });
@@ -288,15 +284,6 @@ export function scheduleFileSavePanel(node, prop) {
   queueMicrotask(refresh); requestAnimationFrame(refresh); setTimeout(refresh, 80); setTimeout(refresh, 200);
 }
 
-function previewFileUrl(file, timestamp) {
-  const query = new URLSearchParams();
-  query.set("filename", String(file?.filename || ""));
-  query.set("subfolder", String(file?.subfolder || ""));
-  query.set("type", String(file?.type || "output"));
-  query.set("t", String(timestamp));
-  return api.apiURL(`/view?${query.toString()}`);
-}
-
 function previewItems(value) {
   return Array.isArray(value) ? value.filter((item) => item?.filename) : [];
 }
@@ -320,53 +307,16 @@ export function updateFileSavePreview(node, message) {
   const images = previewItems(message?.images);
   const audios = previewItems(message?.audio);
   const text = message?.text;
-  const timestamp = Date.now();
-  const wasNativeVideo = preview.root.dataset.kind === "video";
+  const usedNativeMedia = usesNativeMediaPreview(node);
 
-  if (images.length) {
-    const animated = isAnimatedPreview(message, images);
-    if (animated) {
-      // PreviewVideo already creates ComfyUI's native player; a second player
-      // in this panel duplicates it and wastes the node's available height.
-      content.replaceChildren();
-      preview.root.style.display = "none";
-      preview.root.dataset.kind = "video";
-    } else {
-      preview.root.style.display = "flex";
-      const gallery = document.createElement("div");
-      gallery.className = `terry-file-save-preview-gallery${images.length === 1 ? " is-single" : ""}`;
-      for (const file of images) {
-        const media = document.createElement("img");
-        media.className = "terry-file-save-preview-image";
-        media.src = previewFileUrl(file, timestamp);
-        media.alt = String(file.filename || "");
-        media.loading = "lazy";
-        media.draggable = false;
-        gallery.append(media);
-      }
-      content.replaceChildren(gallery);
-      preview.root.dataset.kind = "image";
-    }
-  } else if (audios.length) {
-    preview.root.style.display = "flex";
-    const list = document.createElement("div");
-    list.className = "terry-file-save-preview-audios";
-    for (const file of audios) {
-      const item = document.createElement("div");
-      item.className = "terry-file-save-preview-audio-item";
-      const name = document.createElement("div");
-      name.className = "terry-file-save-preview-audio-name";
-      name.textContent = String(file.filename || "");
-      const player = document.createElement("audio");
-      player.className = "terry-file-save-preview-audio";
-      player.controls = true;
-      player.preload = "metadata";
-      player.src = previewFileUrl(file, timestamp);
-      item.append(name, player);
-      list.append(item);
-    }
-    content.replaceChildren(list);
-    preview.root.dataset.kind = "audio";
+  if (images.length || audios.length) {
+    // SavedImages, PreviewVideo and SavedAudios all have native ComfyUI
+    // renderers. This panel only supplies the missing plain-text preview.
+    content.replaceChildren();
+    preview.root.style.display = "none";
+    preview.root.dataset.kind = images.length
+      ? (isAnimatedPreview(message, images) ? "video" : "image")
+      : "audio";
   } else if (text != null) {
     preview.root.style.display = "flex";
     const block = document.createElement("pre");
@@ -382,7 +332,7 @@ export function updateFileSavePreview(node, message) {
     preview.root.dataset.kind = "empty";
   }
 
-  if (wasNativeVideo !== (preview.root.dataset.kind === "video")) {
+  if (usedNativeMedia !== usesNativeMediaPreview(node)) {
     node.__terryFileSavePanel?.refresh?.();
   }
   node.setDirtyCanvas?.(true, true);
