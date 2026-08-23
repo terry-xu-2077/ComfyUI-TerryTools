@@ -32,6 +32,9 @@ function labels() {
       missing: "分组不存在",
       enabled: "已启用",
       bypassed: "已旁路",
+      on: "开启",
+      off: "关闭",
+      navigate: "跳转到分组",
     };
   }
   return {
@@ -42,6 +45,9 @@ function labels() {
     missing: "Group unavailable",
     enabled: "Enabled",
     bypassed: "Bypassed",
+    on: "yes",
+    off: "no",
+    navigate: "Go to group",
   };
 }
 
@@ -206,6 +212,34 @@ function toggleGroup(node, entry, enabled) {
   refreshAllManagers(true);
 }
 
+function navigateToGroup(entry) {
+  const item = matchingGroup(entry, workflowGroups());
+  const canvas = app.canvas;
+  if (!item || !canvas) return;
+
+  const currentGraph = canvas.getCurrentGraph?.() || canvas.graph;
+  if (currentGraph && item.graph && currentGraph !== item.graph) {
+    if (item.graph === app.graph) canvas.closeSubgraph?.();
+    else canvas.openSubgraph?.(item.graph);
+    if (canvas.getCurrentGraph?.() !== item.graph) canvas.setGraph?.(item.graph);
+  }
+
+  canvas.centerOnNode?.(item.group);
+
+  const groupSize = item.group?._size || item.group?.size;
+  const width = Number(groupSize?.[0]);
+  const height = Number(groupSize?.[1]);
+  const canvasWidth = Number(canvas.canvas?.width);
+  const canvasHeight = Number(canvas.canvas?.height);
+  if (width > 0 && height > 0 && canvasWidth > 0 && canvasHeight > 0) {
+    const currentZoom = Number(canvas.ds?.scale) || 1;
+    const zoom = Math.min(currentZoom, canvasWidth / width - 0.02, canvasHeight / height - 0.02);
+    if (zoom > 0) canvas.setZoom?.(zoom, [canvasWidth / 2, canvasHeight / 2]);
+  }
+
+  canvas.setDirty?.(true, true);
+}
+
 function installStyle() {
   if (document.getElementById(STYLE_ID)) return;
   const style = document.createElement("style");
@@ -221,63 +255,82 @@ function installStyle() {
     }
     .terry-group-manager__row {
       align-items: center;
+      background: var(--comfy-input-bg, #222);
+      border: 1px solid var(--border-color, #595959);
+      border-radius: 999px;
+      box-sizing: border-box;
       display: flex;
-      gap: 8px;
       height: ${ROW_HEIGHT}px;
       min-width: 0;
+      overflow: hidden;
     }
     .terry-group-manager__select {
       appearance: auto;
-      background: var(--comfy-input-bg, #222);
-      border: 1px solid var(--border-color, #484848);
-      border-radius: 8px;
+      background: transparent;
+      border: 0;
+      border-radius: 0;
       box-sizing: border-box;
       color: var(--input-text, #ddd);
       cursor: pointer;
       flex: 1 1 auto;
       font: 12px Inter, system-ui, sans-serif;
-      height: ${ROW_HEIGHT}px;
+      height: 100%;
       min-width: 0;
-      padding: 0 8px;
-      width: 100%;
+      padding: 0 4px 0 12px;
+      width: 0;
     }
     .terry-group-manager__select:focus-visible,
-    .terry-group-manager__toggle:focus-visible {
-      outline: 2px solid var(--p-primary-color, #74a4cf);
-      outline-offset: 2px;
+    .terry-group-manager__toggle:focus-visible,
+    .terry-group-manager__navigate:focus-visible {
+      outline: 1px solid var(--p-primary-color, #74a4cf);
+      outline-offset: -2px;
     }
     .terry-group-manager__toggle {
-      background: #555;
+      align-items: center;
+      background: transparent;
       border: 0;
-      border-radius: 999px;
+      color: var(--input-text, #ddd);
       cursor: pointer;
-      flex: 0 0 38px;
-      height: 22px;
-      padding: 2px;
-      position: relative;
-      transition: background 120ms ease;
-      width: 38px;
+      display: flex;
+      flex: 0 0 auto;
+      font: 11px Inter, system-ui, sans-serif;
+      gap: 7px;
+      height: 100%;
+      justify-content: flex-end;
+      min-width: 64px;
+      padding: 0 8px;
     }
     .terry-group-manager__toggle::after {
-      background: #f4f4f4;
+      background: #555;
       border-radius: 50%;
       content: "";
-      height: 18px;
-      left: 2px;
-      position: absolute;
-      top: 2px;
-      transition: transform 120ms ease;
-      width: 18px;
-    }
-    .terry-group-manager__toggle[aria-checked="true"] {
-      background: var(--p-primary-color, #71a2c8);
+      flex: 0 0 15px;
+      height: 15px;
+      transition: background 120ms ease;
+      width: 15px;
     }
     .terry-group-manager__toggle[aria-checked="true"]::after {
-      transform: translateX(16px);
+      background: var(--p-primary-color, #71a2c8);
     }
-    .terry-group-manager__toggle:disabled {
+    .terry-group-manager__navigate {
+      align-items: center;
+      background: transparent;
+      border: 0;
+      border-left: 1px solid var(--border-color, #595959);
+      color: var(--p-primary-color, #83a3bb);
+      cursor: pointer;
+      display: flex;
+      flex: 0 0 37px;
+      font: 19px/1 system-ui, sans-serif;
+      height: 100%;
+      justify-content: center;
+      padding: 0;
+      width: 37px;
+    }
+    .terry-group-manager__toggle:disabled,
+    .terry-group-manager__navigate:disabled {
       cursor: not-allowed;
-      opacity: .42;
+      opacity: .38;
     }
   `;
   document.head.append(style);
@@ -349,22 +402,39 @@ function buildRow(node, panel, groups, entry, index) {
   });
   row.append(select);
 
-  if (entry) {
-    if (selected) {
-      const enabled = groupIsEnabled(selected.group);
-      Object.assign(entry, entryForGroup(selected, enabled));
-    }
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "terry-group-manager__toggle";
-    button.setAttribute("role", "switch");
-    button.setAttribute("aria-checked", String(Boolean(entry.enabled)));
-    button.setAttribute("aria-label", `${entry.title}: ${entry.enabled ? text.enabled : text.bypassed}`);
-    button.title = entry.enabled ? text.enabled : text.bypassed;
-    button.disabled = !selected;
-    button.addEventListener("click", () => toggleGroup(node, entry, !entry.enabled));
-    row.append(button);
+  if (entry && selected) {
+    const enabled = groupIsEnabled(selected.group);
+    Object.assign(entry, entryForGroup(selected, enabled));
   }
+
+  const enabled = Boolean(entry?.enabled);
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "terry-group-manager__toggle";
+  toggle.setAttribute("role", "switch");
+  toggle.setAttribute("aria-checked", String(enabled));
+  toggle.setAttribute("aria-label", entry
+    ? `${entry.title}: ${enabled ? text.enabled : text.bypassed}`
+    : text.choose);
+  toggle.title = enabled ? text.enabled : text.bypassed;
+  toggle.textContent = enabled ? text.on : text.off;
+  toggle.disabled = !selected;
+  toggle.addEventListener("click", () => {
+    if (entry) toggleGroup(node, entry, !entry.enabled);
+  });
+  row.append(toggle);
+
+  const navigate = document.createElement("button");
+  navigate.type = "button";
+  navigate.className = "terry-group-manager__navigate";
+  navigate.setAttribute("aria-label", entry ? `${text.navigate}: ${entry.title}` : text.navigate);
+  navigate.title = text.navigate;
+  navigate.textContent = "➜";
+  navigate.disabled = !selected;
+  navigate.addEventListener("click", () => {
+    if (entry) navigateToGroup(entry);
+  });
+  row.append(navigate);
 
   panel.append(row);
 }
