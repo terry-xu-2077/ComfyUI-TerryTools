@@ -475,6 +475,18 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
   min-width:${compactWidth}px !important;
   min-height:${minHeight}px !important;
 }
+${root}[data-collapsed]{
+  --min-node-width:${compactWidth}px !important;
+  --node-width:${compactWidth}px !important;
+  width:${compactWidth}px !important;
+  min-width:${compactWidth}px !important;
+  max-width:${compactWidth}px !important;
+}
+${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
+  width:${compactWidth}px !important;
+  min-width:${compactWidth}px !important;
+  max-width:${compactWidth}px !important;
+}
 `);
     const type = nodeType(node);
     if (type === PACK_TYPE) {
