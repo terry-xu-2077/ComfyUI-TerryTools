@@ -8,7 +8,6 @@ const ROW_GAP = 3;
 const PANEL_PADDING = 8;
 const NODE_MIN_WIDTH = 240;
 const REFRESH_INTERVAL = 450;
-const GROUP_COLOR_STRENGTH = 0.28;
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
 
@@ -110,43 +109,6 @@ function groupDescriptor(group, graph, graphIndex, groupIndex) {
   const key = groupId ? `${graphId}:${groupId}` : `${graphId}:title:${title}:${groupIndex}`;
   const color = String(group?.color || group?._color || "").trim();
   return { group, graph, graphId, groupId, groupIndex, key, title, label: title, color };
-}
-
-function colorChannels(color) {
-  const value = String(color || "").trim();
-  let channels;
-  const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
-  if (hex) {
-    const expanded = hex.length <= 4
-      ? hex.slice(0, 3).split("").map((part) => part + part).join("")
-      : hex.slice(0, 6);
-    channels = [0, 2, 4].map((index) => Number.parseInt(expanded.slice(index, index + 2), 16));
-  } else {
-    const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
-    if (match) channels = match.slice(1, 4).map(Number);
-  }
-  return channels || null;
-}
-
-function mutedGroupColor(color) {
-  const channels = colorChannels(color);
-  if (!channels) return `color-mix(in srgb, ${color} ${GROUP_COLOR_STRENGTH * 100}%, #202124)`;
-  const base = [32, 33, 36];
-  const muted = channels.map((channel, index) => Math.round(
-    base[index] + (channel - base[index]) * GROUP_COLOR_STRENGTH
-  ));
-  return `rgb(${muted.join(", ")})`;
-}
-
-function foregroundForColor(color) {
-  const channels = colorChannels(color);
-  if (!channels) return "";
-  const linear = channels.map((channel) => {
-    const value = channel / 255;
-    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-  });
-  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
-  return luminance > 0.42 ? "#202124" : "#f4f4f5";
 }
 
 function workflowGroups() {
@@ -421,15 +383,7 @@ function buildRow(node, panel, groups, entry, index) {
   select.append(makeOption("", text.choose));
 
   const selected = entry ? matchingGroup(entry, groups) : null;
-  if (selected?.color) {
-    const mutedColor = mutedGroupColor(selected.color);
-    row.style.backgroundColor = mutedColor;
-    const foreground = foregroundForColor(mutedColor) || "#f4f4f5";
-    if (foreground) {
-      row.style.setProperty("--input-text", foreground);
-      row.style.setProperty("--p-primary-color", foreground);
-    }
-  }
+  if (selected?.color) select.style.color = selected.color;
   const selectedElsewhere = new Set(
     savedGroups(node)
       .filter((candidate) => candidate !== entry)
