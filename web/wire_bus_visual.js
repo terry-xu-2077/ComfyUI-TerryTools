@@ -325,6 +325,79 @@ function attrEscape(value) {
   return String(value).replaceAll("\\", "\\\\").replaceAll('"', '\\"');
 }
 
+function cssText(value) {
+  return `"${String(value || "")
+    .replaceAll("\\", "\\\\")
+    .replaceAll('"', '\\"')
+    .replaceAll("\r", "")
+    .replaceAll("\n", "\\A ")}"`;
+}
+
+function wirelessChannelLabel(node) {
+  return String(
+    node?.properties?.terry_wireless_bus_channel
+      ?? node?.widgets?.find((widget) => widget?.terryWirelessChannel)?.value
+      ?? ""
+  ).trim();
+}
+
+function drawCompactNodeTitle(ctx, node, titleHeight, size, fontStyle, selected) {
+  const title = String(node?.getTitle?.() ?? node?.title ?? "");
+  if (!title || !ctx?.fillText) return;
+
+  const left = Math.max(18, Number(titleHeight) || nodeTitleHeight());
+  const width = Math.max(1, Number(size?.[0] || node?.size?.[0] || 0) - left - 6);
+  const baseFont = String(fontStyle || "14px sans-serif");
+
+  ctx.save();
+  ctx.font = baseFont;
+  const measured = Number(ctx.measureText?.(title)?.width) || 0;
+  if (measured > width) {
+    const match = baseFont.match(/(\d+(?:\.\d+)?)px/);
+    if (match) {
+      const reduced = Math.max(10, Number(match[1]) * width / measured);
+      ctx.font = baseFont.replace(match[0], `${reduced.toFixed(2)}px`);
+    }
+  }
+  ctx.fillStyle = selected
+    ? globalThis.LiteGraph?.NODE_SELECTED_TITLE_COLOR || "#fff"
+    : node?.constructor?.title_text_color || app.canvas?.node_title_color || "#ddd";
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  const titleTextY = Number(globalThis.LiteGraph?.NODE_TITLE_TEXT_Y);
+  ctx.fillText(title, left, (Number.isFinite(titleTextY) ? titleTextY : 20) - left, width);
+  ctx.restore();
+}
+
+function drawCollapsedWirelessChannel(ctx, node) {
+  const channel = wirelessChannelLabel(node);
+  if (!channel || !ctx?.fillText) return;
+
+  const collapsedWidth = Number(node?._collapsed_width)
+    || Number(globalThis.LiteGraph?.NODE_COLLAPSED_WIDTH)
+    || Number(node?.size?.[0])
+    || 112;
+  const height = 20;
+  const top = 5;
+
+  ctx.save();
+  ctx.font = "11px Inter,system-ui,sans-serif";
+  const textWidth = Number(ctx.measureText?.(channel)?.width) || channel.length * 8;
+  const width = Math.min(180, Math.max(46, textWidth + 18));
+  const left = (collapsedWidth - width) * 0.5;
+  roundedRect(ctx, left, top, width, height, height * 0.5);
+  ctx.fillStyle = "rgba(28,30,33,.94)";
+  ctx.fill();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,.18)";
+  ctx.stroke();
+  ctx.fillStyle = "rgba(245,245,245,.88)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(channel, collapsedWidth * 0.5, top + height * 0.5, width - 14);
+  ctx.restore();
+}
+
 function vueBusNodes() {
   return (app.graph?._nodes || []).filter((node) => {
     const type = nodeType(node);
@@ -353,6 +426,7 @@ function refreshVuePortStyle() {
   const wirelessWidgetGrids = [];
   const wirelessWidgetRows = [];
   const wirelessBadges = [];
+  const collapsedWirelessChannelRules = [];
   const wiredBadges = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
@@ -389,10 +463,38 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
     } else {
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
-      groups.push(`${root} :has(> .lg-slot--${direction})`);
+      groups.push(`${expandedRoot} :has(> .lg-slot--${direction})`);
       wirelessWidgetGrids.push(`${expandedRoot} [data-testid="node-widgets"]`);
       wirelessWidgetRows.push(`${expandedRoot} [data-testid="node-widget"]`);
       wirelessBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
+      const channel = wirelessChannelLabel(node);
+      if (channel) {
+        collapsedWirelessChannelRules.push(`
+${root}[data-collapsed]::before{
+  content:${cssText(channel)};
+  position:absolute;
+  left:50%;
+  top:calc(100% + 5px);
+  transform:translateX(-50%);
+  min-width:32px;
+  max-width:168px;
+  height:20px;
+  padding:0 9px;
+  border:1px solid rgba(255,255,255,.18);
+  border-radius:999px;
+  box-sizing:border-box;
+  background:rgba(28,30,33,.94);
+  color:rgba(245,245,245,.88);
+  font:11px/18px Inter,system-ui,sans-serif;
+  text-align:center;
+  white-space:nowrap;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  pointer-events:none;
+  z-index:6;
+}
+`);
+      }
     }
   }
 
@@ -404,6 +506,7 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
 
   style.textContent = nodeLayoutRules.length ? `
 ${nodeLayoutRules.join("\n")}
+${collapsedWirelessChannelRules.join("\n")}
 ${nodeEdgeMasks.length ? `${nodeEdgeMasks.join(",\n")}{
   content:"";
   position:absolute;
@@ -551,6 +654,15 @@ function patchBusNode(node) {
   queueVueStyleRefresh();
   if (node.__terryBusCapsulePatched) return;
   node.__terryBusCapsulePatched = true;
+  node.__terryBusRefreshVisual = queueVueStyleRefresh;
+
+  const originalDrawTitleText = node.onDrawTitleText;
+  node.onDrawTitleText = function (ctx, titleHeight, size, scale, fontStyle, selected) {
+    if (isNodeCollapsed(this) && originalDrawTitleText) {
+      return originalDrawTitleText.apply(this, arguments);
+    }
+    drawCompactNodeTitle(ctx, this, titleHeight, size, fontStyle, selected);
+  };
 
   // The fixed BUS connection sits on the vertical centerline. Dynamic lane
   // inputs/outputs keep their native positions and ordering.
@@ -583,7 +695,16 @@ function patchBusNode(node) {
   const originalForeground = node.onDrawForeground;
   node.onDrawForeground = function (ctx) {
     const result = originalForeground?.apply?.(this, arguments);
-    if (isNodeCollapsed(this)) return result;
+    if (isNodeCollapsed(this)) {
+      if (isWirelessBusNode(this)) {
+        try {
+          drawCollapsedWirelessChannel(ctx, this);
+        } catch (error) {
+          console.warn("[Terry Wire Bus] Failed to draw collapsed wireless channel", error);
+        }
+      }
+      return result;
+    }
     try {
       if (nodeType(this) === PACK_TYPE) drawCapsulePort(ctx, this, true, 0);
       else if (nodeType(this) === UNPACK_TYPE) drawCapsulePort(ctx, this, false, 0);

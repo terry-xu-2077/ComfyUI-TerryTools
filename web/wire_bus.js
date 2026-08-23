@@ -230,6 +230,7 @@ function refreshWirelessChannels(previousName = "", nextName = "") {
       if (previousName && wirelessChannelName(node) === previousName) {
         if (widget) widget.value = nextName;
         nodeProperties(node)[WIRELESS_CHANNEL_PROPERTY] = nextName;
+        node.__terryBusRefreshVisual?.();
       }
       refreshWirelessCombo(node);
       syncUnpack(node, true);
@@ -248,6 +249,7 @@ function setWirelessChannel(node, requested, notify = true) {
   if (widget?._state) widget._state.value = nextName;
   properties[WIRELESS_CHANNEL_PROPERTY] = nextName;
   node.__terryWirelessControl?.refresh?.();
+  node.__terryBusRefreshVisual?.();
   if (notify && !app.configuringGraph) {
     if (isWirelessPack(node)) refreshWirelessChannels(previousName, nextName);
     else syncUnpack(node, true);
