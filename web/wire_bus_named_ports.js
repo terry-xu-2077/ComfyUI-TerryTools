@@ -97,15 +97,17 @@ function preferredPortName(source) {
   const output = source?.output;
   if (!output) return "";
   const type = cleanName(output.type).toUpperCase();
-  const candidates = [output.localized_name, output.label, output.name];
-  for (const candidate of candidates) {
-    const name = cleanName(candidate);
-    if (!name) continue;
-    // A label/name that is only the raw data type is not a semantic port name.
-    if (name.toUpperCase() === type) continue;
-    return name;
-  }
-  return "";
+  const label = cleanName(output.label);
+  const name = cleanName(output.name);
+  const localized = cleanName(output.localized_name);
+  const semantic = (value) => value && value.toUpperCase() !== type;
+
+  // Subgraph outputs can expose the translated data type as their label while
+  // retaining the user-defined port name in `name`.
+  if (semantic(label) && (label !== localized || !semantic(name))) return label;
+  if (semantic(name)) return name;
+  if (semantic(label)) return label;
+  return semantic(localized) ? localized : "";
 }
 
 function fallbackType(source, input) {

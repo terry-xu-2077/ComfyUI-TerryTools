@@ -478,6 +478,20 @@ function linkOrigin(link) {
   };
 }
 
+function outputPortName(output) {
+  if (!output) return null;
+  const type = String(output.type || "").trim().toUpperCase();
+  const label = String(output.label || "").trim();
+  const name = String(output.name || "").trim();
+  const localized = String(output.localized_name || "").trim();
+  const semantic = (value) => value && value !== EMPTY_TYPE && value.toUpperCase() !== type;
+
+  if (semantic(label) && (label !== localized || !semantic(name))) return label;
+  if (semantic(name)) return name;
+  if (semantic(label)) return label;
+  return localized || label || name || null;
+}
+
 function resolveUpstream(graph, linkId, seen = new Set()) {
   if (!graph || linkId == null) return null;
   const key = `${graph?.id || "g"}:${String(linkId)}`;
@@ -517,7 +531,7 @@ function resolveUpstream(graph, linkId, seen = new Set()) {
     nodeId,
     slot,
     type: outputType && outputType !== EMPTY_TYPE ? outputType : link.type || EMPTY_TYPE,
-    name: output?.localized_name || output?.label || output?.name || null,
+    name: outputPortName(output),
   };
 }
 
