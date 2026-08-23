@@ -810,6 +810,7 @@ function resizeCompactBusNode(node, laneCount, pairedPack = null) {
       - WIRELESS_CONTROL_BOTTOM_PADDING
       - WIRELESS_CONTROL_MARGIN;
   }
+  if (!node.flags?.collapsed) node.__terryBusExpandedSize = [width, height];
   node.setSize?.([width, height]);
 }
 
@@ -1054,6 +1055,32 @@ app.registerExtension({
     if (![PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(nodeName)) return;
     const isPackDef = nodeName === PACK_TYPE || nodeName === WIRELESS_PACK_TYPE;
     const isWirelessDef = nodeName === WIRELESS_PACK_TYPE || nodeName === WIRELESS_UNPACK_TYPE;
+
+    const originalCollapse = nodeType.prototype.collapse;
+    if (typeof originalCollapse === "function") {
+      nodeType.prototype.collapse = function () {
+        const wasCollapsed = Boolean(this.flags?.collapsed);
+        if (!wasCollapsed) {
+          const width = Math.max(COMPACT_NODE_WIDTH, Number(this.size?.[0]) || 0);
+          const height = Math.max(
+            Number(this.size?.[1]) || 0,
+            Number(this.__terryBusPreferredHeight) || 0,
+            Number(this.__terryBusMinHeight) || 0
+          );
+          if (height > 0) this.__terryBusExpandedSize = [width, height];
+        }
+
+        const result = originalCollapse.apply(this, arguments);
+        if (wasCollapsed && !this.flags?.collapsed) {
+          const saved = this.__terryBusExpandedSize;
+          if (saved?.[1] > 0) this.setSize?.([...saved]);
+          if (isPackDef) refreshPackSlots(this);
+          else syncUnpack(this, true);
+        }
+        this.__terryBusRefreshVisual?.();
+        return result;
+      };
+    }
 
     const originalComputeSize = nodeType.prototype.computeSize;
     nodeType.prototype.computeSize = function () {

@@ -461,19 +461,25 @@ function refreshVuePortStyle() {
     const expandedRoot = `${root}:not([data-collapsed])`;
     const compactWidth = Math.max(80, Number(node?.__terryBusCompactWidth) || 112);
     const minBodyHeight = Math.max(0, Number(node?.__terryBusMinHeight) || Number(node?.size?.[1]) || 0);
-    const minHeight = minBodyHeight + nodeTitleHeight();
+    const bodyHeight = Math.max(minBodyHeight, Number(node?.size?.[1]) || 0);
+    const nodeHeight = bodyHeight + nodeTitleHeight();
     nodeEdgeMasks.push(`${expandedRoot}::after`);
     nodeLayoutRules.push(`
 ${expandedRoot}{
   --min-node-width:${compactWidth}px !important;
   --node-width:${compactWidth}px !important;
+  --node-height:${nodeHeight}px !important;
   min-width:${compactWidth}px !important;
-  min-height:${minHeight}px !important;
+  height:${nodeHeight}px !important;
+  min-height:${nodeHeight}px !important;
+  max-height:${nodeHeight}px !important;
 }
 ${expandedRoot} [data-testid="node-inner-wrapper"]{
   width:${compactWidth}px !important;
   min-width:${compactWidth}px !important;
-  min-height:${minHeight}px !important;
+  height:${nodeHeight}px !important;
+  min-height:${nodeHeight}px !important;
+  max-height:${nodeHeight}px !important;
 }
 ${root}[data-collapsed]{
   --min-node-width:${compactWidth}px !important;
@@ -490,14 +496,14 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
 `);
     const type = nodeType(node);
     if (type === PACK_TYPE) {
-      packInputGroups.push(`${root} :has(> .lg-slot--input)`);
-      packRows.push(`${root} .lg-slot--output`);
-      packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
+      packInputGroups.push(`${expandedRoot} :has(> .lg-slot--input)`);
+      packRows.push(`${expandedRoot} .lg-slot--output`);
+      packs.push(`${expandedRoot} .lg-slot--output [data-testid="slot-connection-dot"]`);
       wiredBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     } else if (type === UNPACK_TYPE) {
-      unpackOutputGroups.push(`${root} :has(> .lg-slot--output)`);
-      unpackRows.push(`${root} .lg-slot--input`);
-      unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
+      unpackOutputGroups.push(`${expandedRoot} :has(> .lg-slot--output)`);
+      unpackRows.push(`${expandedRoot} .lg-slot--input`);
+      unpacks.push(`${expandedRoot} .lg-slot--input [data-testid="slot-connection-dot"]`);
       wiredBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     } else {
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
