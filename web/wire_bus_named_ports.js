@@ -4,6 +4,7 @@ const PACK_TYPE = "TerryWireBusPack";
 const UNPACK_TYPE = "TerryWireBusUnpack";
 const WIRELESS_PACK_TYPE = "TerryWirelessBusPack";
 const WIRELESS_UNPACK_TYPE = "TerryWirelessBusUnpack";
+const BUS_TYPE = "TERRY_WIRE_BUS";
 const EMPTY_TYPE = "*";
 const LANE_FIELD = "terry_lane_id";
 const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
@@ -118,7 +119,7 @@ function namedEntries(pack) {
   const entries = [];
   for (const input of pack?.inputs || []) {
     const laneId = String(input?.[LANE_FIELD] || "").trim();
-    if (!input || !laneId || input.link == null) continue;
+    if (!input || !laneId || input.link == null || input.type === BUS_TYPE) continue;
     const source = resolveSource(pack.graph, input.link);
     if (!source) continue;
     const semantic = preferredPortName(source);

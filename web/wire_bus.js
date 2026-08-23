@@ -799,10 +799,20 @@ function localizeFixedPorts(node, updateTitle = false) {
     }
     if (updateTitle) node.title = text.unpackTitle;
   } else if (isWirelessPack(node)) {
+    for (const input of node.inputs || []) {
+      if (input?.type !== BUS_TYPE) continue;
+      input.name = "bus";
+      input.label = text.bus;
+    }
     const widget = wirelessChannelWidget(node);
     if (widget) widget.name = text.channelName;
     if (updateTitle) node.title = text.wirelessPackTitle;
   } else if (isWirelessUnpack(node)) {
+    for (const output of node.outputs || []) {
+      if (output?.type !== BUS_TYPE) continue;
+      output.name = "bus";
+      output.label = text.bus;
+    }
     const widget = wirelessChannelWidget(node);
     if (widget) widget.name = text.channelSelect;
     if (updateTitle) node.title = text.wirelessUnpackTitle;
@@ -920,8 +930,13 @@ function syncUnpack(unpack, force = false) {
     const output = (unpack.outputs || []).find((item) => item?.[LANE_FIELD] === entry.laneId);
     if (!output) continue;
     output.type = entry.type || EMPTY_TYPE;
-    output.name = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
-    output.label = output.name;
+    if (output.type === BUS_TYPE) {
+      output.name = "bus";
+      output.label = labels().bus;
+    } else {
+      output.name = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
+      output.label = output.name;
+    }
     for (const linkId of output.links || []) syncConnectionType(unpack.graph, linkId, output.type);
   }
 
@@ -968,9 +983,14 @@ function refreshPackSlots(pack) {
     const entry = entries[index];
     const input = entry.input;
     if (!input) continue;
-    input.name = entry.source ? entry.name : `lane_${entry.laneId}`;
-    input.label = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
     input.type = entry.source?.type || (input.link != null ? entry.type : EMPTY_TYPE);
+    if (input.type === BUS_TYPE) {
+      input.name = "bus";
+      input.label = text.bus;
+    } else {
+      input.name = entry.source ? entry.name : `lane_${entry.laneId}`;
+      input.label = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
+    }
     if (input.link != null) syncConnectionType(pack.graph, input.link, input.type);
   }
 
