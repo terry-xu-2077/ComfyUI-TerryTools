@@ -8,6 +8,7 @@ const ROW_GAP = 3;
 const PANEL_PADDING = 8;
 const NODE_MIN_WIDTH = 240;
 const REFRESH_INTERVAL = 450;
+const GROUP_COLOR_STRENGTH = 0.28;
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
 
@@ -111,7 +112,7 @@ function groupDescriptor(group, graph, graphIndex, groupIndex) {
   return { group, graph, graphId, groupId, groupIndex, key, title, label: title, color };
 }
 
-function foregroundForColor(color) {
+function colorChannels(color) {
   const value = String(color || "").trim();
   let channels;
   const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
@@ -124,6 +125,21 @@ function foregroundForColor(color) {
     const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
     if (match) channels = match.slice(1, 4).map(Number);
   }
+  return channels || null;
+}
+
+function mutedGroupColor(color) {
+  const channels = colorChannels(color);
+  if (!channels) return `color-mix(in srgb, ${color} ${GROUP_COLOR_STRENGTH * 100}%, #202124)`;
+  const base = [32, 33, 36];
+  const muted = channels.map((channel, index) => Math.round(
+    base[index] + (channel - base[index]) * GROUP_COLOR_STRENGTH
+  ));
+  return `rgb(${muted.join(", ")})`;
+}
+
+function foregroundForColor(color) {
+  const channels = colorChannels(color);
   if (!channels) return "";
   const linear = channels.map((channel) => {
     const value = channel / 255;
@@ -406,8 +422,9 @@ function buildRow(node, panel, groups, entry, index) {
 
   const selected = entry ? matchingGroup(entry, groups) : null;
   if (selected?.color) {
-    row.style.backgroundColor = selected.color;
-    const foreground = foregroundForColor(selected.color);
+    const mutedColor = mutedGroupColor(selected.color);
+    row.style.backgroundColor = mutedColor;
+    const foreground = foregroundForColor(mutedColor) || "#f4f4f5";
     if (foreground) {
       row.style.setProperty("--input-text", foreground);
       row.style.setProperty("--p-primary-color", foreground);
