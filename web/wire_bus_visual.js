@@ -425,11 +425,50 @@ function drawCollapsedWirelessChannel(ctx, node) {
   ctx.restore();
 }
 
+function workflowBusGraphs() {
+  const active = app.canvas?.graph || app.graph;
+  const root = active?.rootGraph || app.graph?.rootGraph || app.graph || active;
+  const queue = [active, root];
+  const graphs = [];
+  const seen = new Set();
+
+  while (queue.length) {
+    const graph = queue.shift();
+    if (!graph || seen.has(graph)) continue;
+    seen.add(graph);
+    graphs.push(graph);
+
+    for (const node of graph?._nodes || graph?.nodes || []) {
+      if (node?.subgraph && !seen.has(node.subgraph)) queue.push(node.subgraph);
+    }
+    for (const collection of [graph?.subgraphs, graph?._subgraphs]) {
+      if (!collection) continue;
+      const values = typeof collection.values === "function"
+        ? collection.values()
+        : Object.values(collection);
+      for (const value of values) {
+        const subgraph = value?.subgraph || value;
+        if (subgraph && !seen.has(subgraph)) queue.push(subgraph);
+      }
+    }
+  }
+  return graphs;
+}
+
 function vueBusNodes() {
-  return (app.graph?._nodes || []).filter((node) => {
-    const type = nodeType(node);
-    return [PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(type);
-  });
+  const nodes = [];
+  const seenIds = new Set();
+  for (const graph of workflowBusGraphs()) {
+    for (const node of graph?._nodes || graph?.nodes || []) {
+      const type = nodeType(node);
+      if (![PACK_TYPE, UNPACK_TYPE, WIRELESS_PACK_TYPE, WIRELESS_UNPACK_TYPE].includes(type)) continue;
+      const id = node?.id == null ? node : String(node.id);
+      if (seenIds.has(id)) continue;
+      seenIds.add(id);
+      nodes.push(node);
+    }
+  }
+  return nodes;
 }
 
 function refreshVuePortStyle() {
@@ -789,7 +828,9 @@ function patchBusNode(node) {
 }
 
 function patchExistingBusNodes() {
-  for (const node of app.graph?._nodes || []) patchBusNode(node);
+  for (const graph of workflowBusGraphs()) {
+    for (const node of graph?._nodes || graph?.nodes || []) patchBusNode(node);
+  }
   queueVueStyleRefresh();
 }
 
@@ -835,9 +876,23 @@ function patchCanvas(canvas) {
   if (!canvas || canvas.__terryWireBusRibbonPatched || typeof canvas.drawConnections !== "function") return;
   canvas.__terryWireBusRibbonPatched = true;
   const original = canvas.drawConnections;
+  const originalSetGraph = canvas.setGraph;
+
+  if (typeof originalSetGraph === "function") {
+    canvas.setGraph = function () {
+      const result = originalSetGraph.apply(this, arguments);
+      this.__terryWireBusActiveGraph = this.graph || app.graph;
+      patchExistingBusNodes();
+      return result;
+    };
+  }
 
   canvas.drawConnections = function (ctx) {
     const graph = this.graph || app.graph;
+    if (this.__terryWireBusActiveGraph !== graph) {
+      this.__terryWireBusActiveGraph = graph;
+      patchExistingBusNodes();
+    }
     const busLinks = allLinks(graph).filter((link) => isBusLink(graph, link));
     const restore = hideBusLinksForNativeDraw(graph);
     let result;
@@ -879,4 +934,5 @@ app.registerExtension({
   setup() { ensurePatched(); },
   nodeCreated(node) { patchBusNode(node); },
   loadedGraphNode(node) { patchBusNode(node); patchCanvas(app.canvas); },
+  afterConfigureGraph() { ensurePatched(); },
 });
