@@ -783,7 +783,7 @@ function compactBusNodeMinimumHeight(node, laneCount) {
     + (isWireless(node) ? WIRELESS_WIDGET_HEIGHT : 0);
 }
 
-function resizeCompactBusNode(node, laneCount) {
+function resizeCompactBusNode(node, laneCount, pairedPack = null) {
   if (!node) return;
   const minHeight = compactBusNodeMinimumHeight(node, laneCount);
   const preferredHeight = Math.max(
@@ -796,7 +796,10 @@ function resizeCompactBusNode(node, laneCount) {
   const previousPreferredHeight = Number(node.__terryBusPreferredHeight) || preferredHeight;
   const customHeight = initialized && Math.abs(currentHeight - previousPreferredHeight) > 0.5;
   const width = initialized ? Math.max(COMPACT_NODE_WIDTH, currentWidth) : COMPACT_NODE_WIDTH;
-  const height = customHeight ? Math.max(minHeight, currentHeight) : preferredHeight;
+  const pairedHeight = isUnpack(node) && isPack(pairedPack)
+    ? Number(pairedPack.size?.[1]) || 0
+    : 0;
+  const height = pairedHeight || (customHeight ? Math.max(minHeight, currentHeight) : preferredHeight);
   node.__terryBusCompactWidth = COMPACT_NODE_WIDTH;
   node.__terryBusMinHeight = minHeight;
   node.__terryBusPreferredHeight = preferredHeight;
@@ -815,7 +818,10 @@ function syncUnpack(unpack, force = false) {
   const pack = findPackFromUnpack(unpack);
   const entries = pack ? packLaneEntries(pack) : [];
   const signature = signatureForEntries(entries);
-  if (!force && unpack.__terryBusSignature === signature) return;
+  const matchingPackHeight = !pack || Math.abs(
+    Number(unpack.size?.[1] || 0) - Number(pack.size?.[1] || 0)
+  ) <= 0.5;
+  if (!force && unpack.__terryBusSignature === signature && matchingPackHeight) return;
   unpack.__terryBusSignature = signature;
 
   ensureUnpackLaneIds(unpack, entries.map((entry) => entry.lane));
@@ -854,7 +860,7 @@ function syncUnpack(unpack, force = false) {
     (output) => output?.[LANE_FIELD] || ""
   );
 
-  resizeCompactBusNode(unpack, entries.length);
+  resizeCompactBusNode(unpack, entries.length, pack);
   unpack.graph?.setDirtyCanvas?.(true, true);
 }
 
