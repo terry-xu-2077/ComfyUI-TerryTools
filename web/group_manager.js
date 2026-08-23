@@ -250,6 +250,7 @@ function installStyle() {
       display: flex;
       flex-direction: column;
       gap: ${ROW_GAP}px;
+      min-height: ${ROW_HEIGHT + PANEL_PADDING * 2}px;
       padding: ${PANEL_PADDING}px;
       width: 100%;
     }
@@ -260,7 +261,10 @@ function installStyle() {
       border-radius: 999px;
       box-sizing: border-box;
       display: flex;
+      flex: 0 0 ${ROW_HEIGHT}px;
       height: ${ROW_HEIGHT}px;
+      max-height: ${ROW_HEIGHT}px;
+      min-height: ${ROW_HEIGHT}px;
       min-width: 0;
       overflow: hidden;
     }
@@ -271,6 +275,7 @@ function installStyle() {
       border-radius: 0;
       box-sizing: border-box;
       color: var(--input-text, #ddd);
+      color-scheme: dark;
       cursor: pointer;
       flex: 1 1 auto;
       font: 12px Inter, system-ui, sans-serif;
@@ -278,6 +283,13 @@ function installStyle() {
       min-width: 0;
       padding: 0 4px 0 12px;
       width: 0;
+    }
+    .terry-group-manager__select option {
+      background: #25272b !important;
+      color: #e8e8e8 !important;
+    }
+    .terry-group-manager__select option:disabled {
+      color: #92959d !important;
     }
     .terry-group-manager__select:focus-visible,
     .terry-group-manager__toggle:focus-visible,
