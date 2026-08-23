@@ -158,11 +158,18 @@ function caretRange(editor, trigger) {
   const range = document.createRange(); range.setStart(caret.startContainer, caret.startOffset - match[0].length); range.setEnd(caret.startContainer, caret.startOffset);
   return { range, query: String(match[1] || "").trim().toLowerCase() };
 }
-function makeChip(mode, raw, label, kind = "") {
-  const el = document.createElement("span"); el.contentEditable = "false"; el.dataset.raw = raw;
-  if (mode === "timeline") el.className = `terry-tl-chip${kind ? ` is-${kind}` : ""}`;
-  else el.className = `terry-h3-chip ${kind === "subject" ? "terry-h3-subject-asset-chip terry-h3-strong" : kind ? "terry-h3-media-chip" : ""}`.trim();
-  el.textContent = label; return el;
+function createToken(controller, raw, asset = null) {
+  return createH3TokenNode(raw, {
+    onChange: controller.onChange,
+    ...(controller.mode === "timeline" ? { extraChipClass: "terry-tl-chip" } : {}),
+    ...(asset ? {
+      resolveMedia(kind, index) {
+        return asset.kind === kind && asset.index === Number(index)
+          ? { preview: asset.preview, source: asset.name }
+          : null;
+      },
+    } : {}),
+  });
 }
 function insertAt(editor, range, content, onChange) {
   range.deleteContents();
@@ -191,14 +198,13 @@ function closeMenu(controller) { controller.menu?.remove?.(); controller.menu = 
 function currentFilter(node) { return String(node?.properties?.[FILTER_PROP] || "subject"); }
 function setFilter(node, value) { node.properties ||= {}; node.properties[FILTER_PROP] = value; app.graph?.change?.(); }
 function insertMediaReference(controller, hit, asset) {
-  const chip = makeChip(controller.mode, asset.raw, asset.displayLabel, asset.kind);
-  if (asset.preview && asset.kind !== "audio") { const img = document.createElement("img"); img.src = asset.preview; img.alt = ""; chip.prepend(img); }
-  insertAt(controller.editor, hit.range, chip, controller.onChange);
+  insertAt(controller.editor, hit.range, createToken(controller, asset.raw, asset), controller.onChange);
   closeMenu(controller);
 }
 function insertSubjectReference(controller, hit, asset, subjectNumber = null) {
   const number = Number(subjectNumber) || subjectFor(controller.node, controller.mode, asset);
-  insertAt(controller.editor, hit.range, makeChip(controller.mode, `<Subject ${number}>`, `主体 ${number}`, "subject"), controller.onChange);
+  insertAt(controller.editor, hit.range, createToken(controller, `<Subject ${number}>`), controller.onChange);
+  controller.node?.__terryH3RefreshSubjectThumbnails?.();
   closeMenu(controller);
 }
 
@@ -259,6 +265,22 @@ function openAssetMenu(controller) {
 
 function nextSpeaker(node, mode) { let max = 0; for (const match of promptText(node, mode).matchAll(/\(S(\d+)\)/gi)) max = Math.max(max, Number(match[1]) || 0); return max + 1; }
 function nextShot(node, mode) { let max = 0; for (const match of promptText(node, mode).matchAll(/\[\s*Shot\s+(\d+)\s*\]/gi)) max = Math.max(max, Number(match[1]) || 0); return max + 1; }
+function defaultDialogueLanguage() {
+  let locale = "en";
+  try {
+    locale = app?.ui?.settings?.getSettingValue?.("Comfy.Locale")
+      || document?.documentElement?.lang
+      || navigator.language
+      || locale;
+  } catch {}
+  const code = String(locale).trim().toLowerCase().replaceAll("_", "-").split("-")[0];
+  return {
+    ar: "Arabic", de: "German", en: "English", es: "Spanish", fr: "French",
+    hi: "Hindi", id: "Indonesian", it: "Italian", ja: "Japanese", ko: "Korean",
+    nl: "Dutch", pl: "Polish", pt: "Portuguese", ru: "Russian", th: "Thai",
+    tr: "Turkish", vi: "Vietnamese", yue: "Cantonese", zh: "Chinese",
+  }[code] || "English";
+}
 function commands(node, mode) {
   const shot = nextShot(node, mode);
   const speaker = nextSpeaker(node, mode);
@@ -272,7 +294,7 @@ function commands(node, mode) {
     { category: "structure", label: "non_diegetic_music", detail: "非剧情内音乐", raw: "non_diegetic_music:" },
     { category: "shot", label: `[Shot ${shot}]`, detail: `插入第 ${shot} 个镜头分段标签`, raw: `[Shot ${shot}]` },
     { category: "shot", label: `Speaker S${speaker}`, detail: "插入下一个全局说话人编号", raw: `(S${speaker})`, kind: "speaker" },
-    { category: "dialogue", label: "对白块", detail: "插入可编辑对白块", raw: "<d>[English] </d>", kind: "dialogue" },
+    { category: "dialogue", label: "对白块", detail: "插入可编辑对白块", raw: `<d>[${defaultDialogueLanguage()}] </d>`, kind: "dialogue" },
     { category: "dialogue", label: "scenetrans", detail: "对白或音频跨镜头连续", raw: "<scenetrans>" },
     { category: "dialogue", label: "cutoff", detail: "对白被镜头或剪辑截断", raw: "<cutoff>" },
     ...[["fully_preserved","定义的视觉引用角色被完整保留"],["partially_preserved","仍使用引用内容，但部分特征被改变"],["attribute_transfer","把引用特征迁移到另一个可识别主体"],["weak_reference","仅保留宽泛风格、类别、构图或氛围"],["fully_copy","完整复制源音频信号"],["partially_copy","只复制部分时间或音频层"],["reference","只参考音色、节奏、内容或声音质感"]].map(([raw, detail]) => ({ category: "retention", label: raw, detail, raw })),
@@ -288,30 +310,22 @@ function commands(node, mode) {
 }
 function category(id) { return CATEGORY_META.find((item) => item.id === id) || { id, label: id, icon: "›", detail: "" }; }
 function chooseCommand(controller, state, command) {
-  const raw = command.raw || ""; let label = raw.replaceAll("_", " "), kind = "";
-  if (command.kind === "speaker") { label = `🎙 ${raw.slice(1, -1)}`; kind = "speaker"; }
-  if (command.kind === "dialogue") {
-    const dialogue = createH3TokenNode(raw, {
-      onChange: controller.onChange,
-      ...(controller.mode === "timeline" ? { extraChipClass: "terry-tl-chip" } : {}),
-    });
-    insertAt(controller.editor, state.range, dialogue, controller.onChange);
-    closeMenu(controller);
-    const body = dialogue.querySelector?.(".terry-h3-dialogue-text");
-    if (body) {
-      body.focus?.({ preventScroll: true });
-      const selection = window.getSelection?.();
-      if (selection) {
-        const range = document.createRange();
-        range.selectNodeContents(body);
-        range.collapse(false);
-        selection.removeAllRanges();
-        selection.addRange(range);
-      }
+  const token = createToken(controller, command.raw || "");
+  insertAt(controller.editor, state.range, token, controller.onChange);
+  closeMenu(controller);
+  if (command.kind !== "dialogue") return;
+  const body = token.querySelector?.(".terry-h3-dialogue-text");
+  if (body) {
+    body.focus?.({ preventScroll: true });
+    const selection = window.getSelection?.();
+    if (selection) {
+      const range = document.createRange();
+      range.selectNodeContents(body);
+      range.collapse(false);
+      selection.removeAllRanges();
+      selection.addRange(range);
     }
-    return;
   }
-  insertAt(controller.editor, state.range, makeChip(controller.mode, raw, label, kind), controller.onChange); closeMenu(controller);
 }
 function renderCommandMenu(controller, state) {
   const menu = controller.menu; if (!menu) return; menu.replaceChildren();
