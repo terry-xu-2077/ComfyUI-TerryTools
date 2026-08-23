@@ -1022,6 +1022,32 @@ function refreshPackSlots(pack) {
   pack.graph?.setDirtyCanvas?.(true, true);
 }
 
+function executionPromptSource(prompt, source, current) {
+  const sourceId = String(source?.nodeId ?? source?.node?.id ?? "");
+  const sourceSlot = Number(source?.slot) || 0;
+  const hasPromptNode = (id) => id != null
+    && Object.prototype.hasOwnProperty.call(prompt, String(id));
+
+  if (hasPromptNode(sourceId)) return [sourceId, sourceSlot];
+
+  // ComfyUI already resolves virtual outputs through subgraphs to flattened
+  // execution ids such as "311:198". Never replace those with a wrapper id.
+  if (Array.isArray(current) && hasPromptNode(current[0])) {
+    return [String(current[0]), Number(current[1]) || 0];
+  }
+
+  // Recover the flattened source when an older frontend left a virtual link.
+  const resolvedLink = source?.node?.getInputLink?.(sourceSlot);
+  const resolvedId = resolvedLink?.origin_id ?? resolvedLink?.originId;
+  if (hasPromptNode(resolvedId)) {
+    const resolvedSlot = resolvedLink?.origin_slot ?? resolvedLink?.originSlot;
+    return [String(resolvedId), Number(resolvedSlot) || 0];
+  }
+
+  if (source?.node?.subgraph || source?.node?.isSubgraphNode?.()) return null;
+  return [sourceId, sourceSlot];
+}
+
 function patchGraphToPrompt() {
   if (app.__terryWireBusPatched) return;
   app.__terryWireBusPatched = true;
@@ -1053,7 +1079,8 @@ function patchGraphToPrompt() {
               const targetPrompt = prompt[String(target.nodeId)] || prompt[target.nodeId];
               const input = target.node?.inputs?.[target.slot];
               if (!targetPrompt?.inputs || !input?.name) continue;
-              targetPrompt.inputs[input.name] = [String(source.nodeId), source.slot];
+              const resolved = executionPromptSource(prompt, source, targetPrompt.inputs[input.name]);
+              if (resolved) targetPrompt.inputs[input.name] = resolved;
             }
           }
         }
