@@ -142,7 +142,8 @@ function dialogueChip(raw, onChange, options = {}) {
   body.textContent = match[2] || "";
 
   const update = () => {
-    chip.dataset.raw = `<d>[${select.value || "English"}] ${body.innerText.replaceAll("\n", " ")}</d>`;
+    const value = String(body.innerText ?? body.textContent ?? "").replace(/\r?\n/g, " ");
+    chip.dataset.raw = `<d>[${select.value || "English"}] ${value}</d>`;
     onChange?.();
   };
   select.addEventListener("change", update);
@@ -151,6 +152,29 @@ function dialogueChip(raw, onChange, options = {}) {
   body.addEventListener("input", update);
   body.addEventListener("pointerdown", (event) => event.stopPropagation());
   body.addEventListener("keydown", (event) => { event.stopPropagation(); if (event.key === "Enter") event.preventDefault(); });
+  body.addEventListener("paste", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const value = String(event.clipboardData?.getData("text/plain") || "")
+      .replace(/\r\n?/g, "\n")
+      .replaceAll("\n", " ");
+    if (!value) return;
+
+    const selection = window.getSelection?.();
+    const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+    if (range && body.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      const text = document.createTextNode(value);
+      range.insertNode(text);
+      range.setStartAfter(text);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+    } else {
+      body.textContent += value;
+    }
+    update();
+  });
   chip.append(select, body);
   return chip;
 }
@@ -221,18 +245,40 @@ export function renderH3RawText(editor, raw) {
 
 export function serializeH3RichText(editor) {
   let out = "";
+  const blockTags = new Set(["DIV", "P", "LI"]);
   const walk = (root) => {
+    let previousWasBlock = false;
     for (const child of root?.childNodes || []) {
-      if (child.nodeType === Node.TEXT_NODE) out += String(child.nodeValue || "").replaceAll(CARET, "");
-      else if (child.nodeType === Node.ELEMENT_NODE) {
-        if (child.dataset?.raw != null) out += child.dataset.raw;
-        else if (child.tagName === "BR") out += "\n";
-        else walk(child);
+      if (child.nodeType === Node.TEXT_NODE) {
+        out += String(child.nodeValue || "").replaceAll(CARET, "");
+        previousWasBlock = false;
+        continue;
       }
+      if (child.nodeType !== Node.ELEMENT_NODE) continue;
+      if (child.dataset?.raw != null) {
+        out += child.dataset.raw;
+        previousWasBlock = false;
+        continue;
+      }
+      if (child.tagName === "BR") {
+        out += "\n";
+        previousWasBlock = false;
+        continue;
+      }
+
+      const block = blockTags.has(child.tagName);
+      if (block && (previousWasBlock || (out && !out.endsWith("\n")))) out += "\n";
+
+      const children = [...(child.childNodes || [])];
+      const placeholder = block && children.length === 1
+        && children[0]?.nodeType === Node.ELEMENT_NODE
+        && children[0]?.tagName === "BR";
+      if (!placeholder) walk(child);
+      previousWasBlock = block;
     }
   };
   walk(editor);
-  return out;
+  return out.replace(/\r\n?/g, "\n");
 }
 
 export function insertH3RichTextAtSelection(editor, text, options = {}) {

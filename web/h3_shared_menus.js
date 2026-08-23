@@ -1,5 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { createH3TokenNode } from "./h3_rich_text.js";
 
 const PROMPT_LINKS = "terry_h3_virtual_media_links";
 const TIMELINE_LINKS = "terry_h3_timeline_virtual_media_links";
@@ -289,7 +290,27 @@ function category(id) { return CATEGORY_META.find((item) => item.id === id) || {
 function chooseCommand(controller, state, command) {
   const raw = command.raw || ""; let label = raw.replaceAll("_", " "), kind = "";
   if (command.kind === "speaker") { label = `🎙 ${raw.slice(1, -1)}`; kind = "speaker"; }
-  if (command.kind === "dialogue") { label = "Dialogue"; kind = "dialogue"; }
+  if (command.kind === "dialogue") {
+    const dialogue = createH3TokenNode(raw, {
+      onChange: controller.onChange,
+      ...(controller.mode === "timeline" ? { extraChipClass: "terry-tl-chip" } : {}),
+    });
+    insertAt(controller.editor, state.range, dialogue, controller.onChange);
+    closeMenu(controller);
+    const body = dialogue.querySelector?.(".terry-h3-dialogue-text");
+    if (body) {
+      body.focus?.({ preventScroll: true });
+      const selection = window.getSelection?.();
+      if (selection) {
+        const range = document.createRange();
+        range.selectNodeContents(body);
+        range.collapse(false);
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+    }
+    return;
+  }
   insertAt(controller.editor, state.range, makeChip(controller.mode, raw, label, kind), controller.onChange); closeMenu(controller);
 }
 function renderCommandMenu(controller, state) {

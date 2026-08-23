@@ -1,11 +1,10 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
+import { serializeH3RichText } from "./h3_rich_text.js";
 
 const NODE_ID = "TerryH3PromptEditor";
 const LINKS_PROP = "terry_h3_virtual_media_links";
 const BINDINGS_PROP = "terry_h3_subject_bindings";
-const CARET = "\u200B";
-
 function isTarget(node) {
   return [node?.comfyClass, node?.type, node?.constructor?.type, node?.constructor?.comfyClass, node?.constructor?.nodeData?.name]
     .some((value) => String(value || "") === NODE_ID);
@@ -142,33 +141,7 @@ function refreshSubjectThumbnails(node) {
 }
 
 function serializeEditor(editor) {
-  let out = "";
-  const blockTags = new Set(["DIV", "P", "LI"]);
-  const walk = (parent) => {
-    const children = [...(parent?.childNodes || [])];
-    for (let i = 0; i < children.length; i++) {
-      const child = children[i];
-      if (child.nodeType === Node.TEXT_NODE) {
-        out += String(child.nodeValue || "").replaceAll(CARET, "");
-        continue;
-      }
-      if (child.nodeType !== Node.ELEMENT_NODE) continue;
-      if (child.dataset?.raw != null) {
-        out += child.dataset.raw;
-        continue;
-      }
-      if (child.tagName === "BR") {
-        out += "\n";
-        continue;
-      }
-      const block = blockTags.has(child.tagName);
-      if (block && out && !out.endsWith("\n")) out += "\n";
-      walk(child);
-      if (block && i < children.length - 1 && !out.endsWith("\n")) out += "\n";
-    }
-  };
-  walk(editor);
-  return out.replace(/\r\n?/g, "\n");
+  return serializeH3RichText(editor);
 }
 
 function syncBeforeViewSwitch(node) {
