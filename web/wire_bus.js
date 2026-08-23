@@ -846,13 +846,15 @@ function resizeCompactBusNode(node, laneCount, pairedPack = null) {
   const previousPreferredHeight = Number(node.__terryBusPreferredHeight) || preferredHeight;
   const customHeight = initialized && Math.abs(currentHeight - previousPreferredHeight) > 0.5;
   const width = initialized ? Math.max(COMPACT_NODE_WIDTH, currentWidth) : COMPACT_NODE_WIDTH;
-  const pairedHeight = isUnpack(node) && isPack(pairedPack)
+  const inheritsPairedHeight = (isUnpack(node) && isPack(pairedPack))
+    || (isWirelessPack(node) && isWiredPack(pairedPack));
+  const pairedHeight = inheritsPairedHeight
     ? Number(pairedPack.size?.[1]) || 0
     : 0;
   const height = pairedHeight || (customHeight ? Math.max(minHeight, currentHeight) : preferredHeight);
   node.__terryBusCompactWidth = COMPACT_NODE_WIDTH;
-  node.__terryBusMinHeight = minHeight;
-  node.__terryBusPreferredHeight = preferredHeight;
+  node.__terryBusMinHeight = pairedHeight ? Math.min(minHeight, pairedHeight) : minHeight;
+  node.__terryBusPreferredHeight = pairedHeight || preferredHeight;
   node.__terryBusLayoutInitialized = true;
   if (isWireless(node)) {
     node.widgets_start_y = height
@@ -864,19 +866,31 @@ function resizeCompactBusNode(node, laneCount, pairedPack = null) {
   node.setSize?.([width, height]);
 }
 
+function syncWirelessBridgePackHeight(pack, publishedEntries = null) {
+  if (!isWirelessPack(pack)) return;
+  const bridgeInput = (pack.inputs || []).find((input) =>
+    input?.type === BUS_TYPE && input.link != null
+  );
+  if (!bridgeInput) return;
+  const upstreamPack = resolveUpstream(pack.graph, bridgeInput.link)?.node;
+  if (!isWiredPack(upstreamPack)) return;
+
+  const entries = publishedEntries || effectivePackLaneEntries(pack);
+  const upstreamHeightChanged = Math.abs(
+    Number(pack.size?.[1] || 0) - Number(upstreamPack.size?.[1] || 0)
+  ) > 0.5;
+  if (pack.__terryBusPublishedLaneCount === entries.length && !upstreamHeightChanged) return;
+
+  resizeCompactBusNode(pack, entries.length, upstreamPack);
+  pack.__terryBusPublishedLaneCount = entries.length;
+  pack.__terryBusRefreshVisual?.();
+}
+
 function syncUnpack(unpack, force = false) {
   localizeFixedPorts(unpack);
   const pack = findPackFromUnpack(unpack);
   const entries = pack ? effectivePackLaneEntries(pack) : [];
-  if (
-    isWirelessPack(pack)
-    && entries.some((entry) => entry.bridgeInput)
-    && pack.__terryBusPublishedLaneCount !== entries.length
-  ) {
-    resizeCompactBusNode(pack, entries.length);
-    pack.__terryBusPublishedLaneCount = entries.length;
-    pack.__terryBusRefreshVisual?.();
-  }
+  syncWirelessBridgePackHeight(pack, entries);
   const signature = signatureForEntries(entries);
   const matchingPackHeight = !pack || Math.abs(
     Number(unpack.size?.[1] || 0) - Number(pack.size?.[1] || 0)
@@ -964,9 +978,10 @@ function refreshPackSlots(pack) {
     if (input.link != null) syncConnectionType(pack.graph, input.link, input.type);
   }
 
-  const busOnlyMode = isWirelessPack(pack) && entries.some((entry) =>
+  const upstreamBusEntry = isWirelessPack(pack) && entries.find((entry) =>
     entry.source?.type === BUS_TYPE && isWiredPack(entry.source.node)
   );
+  const busOnlyMode = Boolean(upstreamBusEntry);
   if (busOnlyMode) {
     for (let index = (pack.inputs?.length || 0) - 1; index >= 0; index--) {
       if (isAddWireInput(pack.inputs[index])) pack.removeInput?.(index);
@@ -984,7 +999,7 @@ function refreshPackSlots(pack) {
   }
 
   const publishedEntries = isWirelessPack(pack) ? effectivePackLaneEntries(pack) : entries;
-  resizeCompactBusNode(pack, publishedEntries.length);
+  resizeCompactBusNode(pack, publishedEntries.length, upstreamBusEntry?.source?.node || null);
   pack.__terryBusPublishedLaneCount = publishedEntries.length;
   pack.__terryBusRefreshVisual?.();
   queueMicrotask(syncAllUnpacks);
@@ -1051,6 +1066,7 @@ function startBridge() {
         }
         if (isPack(node)) {
           localizeFixedPorts(node, localeChanged);
+          if (isWirelessPack(node)) syncWirelessBridgePackHeight(node);
           const last = node.inputs?.[node.inputs.length - 1];
           if (last?.link == null && last?.type === EMPTY_TYPE) last.label = labels().addWire;
         }
