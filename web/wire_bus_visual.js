@@ -447,7 +447,7 @@ function refreshVuePortStyle() {
   const packInputGroups = [];
   const unpackOutputGroups = [];
   const nodeLayoutRules = [];
-  const nodeEdgeMasks = [];
+  const phantomOutputRows = [];
   const wirelessInputGroups = [];
   const wirelessOutputGroups = [];
   const wirelessWidgetGrids = [];
@@ -464,9 +464,6 @@ function refreshVuePortStyle() {
     const minBodyHeight = Math.max(0, Number(node?.__terryBusMinHeight) || Number(node?.size?.[1]) || 0);
     const bodyHeight = Math.max(minBodyHeight, Number(node?.size?.[1]) || 0);
     const nodeHeight = bodyHeight + nodeTitleHeight();
-    if (type === PACK_TYPE || type === WIRELESS_PACK_TYPE) {
-      nodeEdgeMasks.push(`${expandedRoot}::after`);
-    }
     nodeLayoutRules.push(`
 ${expandedRoot}{
   --min-node-width:${compactWidth}px !important;
@@ -498,6 +495,7 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
 }
 `);
     if (type === PACK_TYPE) {
+      phantomOutputRows.push(`${expandedRoot} .lg-slot--output:not(:first-child)`);
       packInputGroups.push(`${expandedRoot} :has(> .lg-slot--input)`);
       packRows.push(`${expandedRoot} .lg-slot--output`);
       packs.push(`${expandedRoot} .lg-slot--output [data-testid="slot-connection-dot"]`);
@@ -508,6 +506,9 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
       unpacks.push(`${expandedRoot} .lg-slot--input [data-testid="slot-connection-dot"]`);
       wiredBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     } else {
+      if (type === WIRELESS_PACK_TYPE) {
+        phantomOutputRows.push(`${expandedRoot} .lg-slot--output`);
+      }
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
       groups.push(`${expandedRoot} :has(> .lg-slot--${direction})`);
@@ -558,17 +559,9 @@ ${root}[data-collapsed]::before{
   style.textContent = nodeLayoutRules.length ? `
 ${nodeLayoutRules.join("\n")}
 ${collapsedWirelessChannelRules.join("\n")}
-${nodeEdgeMasks.length ? `${nodeEdgeMasks.join(",\n")}{
-  content:"";
-  position:absolute;
-  top:calc(${nodeTitleHeight()}px + 4px);
-  right:-6px;
-  bottom:8px;
-  width:12px;
-  border-radius:0 6px 6px 0;
-  background:var(--component-node-background,var(--node-component-surface,#222));
-  pointer-events:none;
-  z-index:3;
+${phantomOutputRows.length ? `${phantomOutputRows.join(",\n")}{
+  display:none !important;
+  pointer-events:none !important;
 }` : ""}
 ${packInputGroups.length ? `${packInputGroups.join(",\n")}{
   position:absolute !important;
