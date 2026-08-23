@@ -17,6 +17,7 @@ const COMPACT_NODE_HEADER_HEIGHT = 80;
 const COMPACT_NODE_LANE_HEIGHT = 26;
 const COMPACT_NODE_SLOT_PADDING = 56;
 const WIRELESS_WIDGET_HEIGHT = 38;
+const WIRELESS_CONTROL_STYLE_ID = "terry-wireless-bus-control-style";
 
 let laneSequence = 0;
 
@@ -203,7 +204,7 @@ function refreshWirelessCombo(unpack) {
   const widget = wirelessChannelWidget(unpack);
   if (!widget) return;
   const descriptor = Object.getOwnPropertyDescriptor(widget.options || {}, "values");
-  const options = {};
+  const options = widget.__terryWirelessHidden ? { hidden: true } : {};
   Object.defineProperty(options, "values", descriptor || {
     get: () => wirelessChannelNames(unpack.graph || app.graph),
     enumerable: true,
@@ -215,6 +216,7 @@ function refreshWirelessCombo(unpack) {
     unpack.widgets.splice(index, 1);
     unpack.widgets.splice(index, 0, widget);
   }
+  unpack.__terryWirelessControl?.refresh?.();
 }
 
 function refreshWirelessChannels(previousName = "", nextName = "") {
@@ -240,12 +242,165 @@ function setWirelessChannel(node, requested, notify = true) {
     : String(requested || "").trim();
   const widget = wirelessChannelWidget(node);
   if (widget) widget.value = nextName;
+  if (widget?._state) widget._state.value = nextName;
   properties[WIRELESS_CHANNEL_PROPERTY] = nextName;
+  node.__terryWirelessControl?.refresh?.();
   if (notify && !app.configuringGraph) {
     if (isWirelessPack(node)) refreshWirelessChannels(previousName, nextName);
     else syncUnpack(node, true);
   }
   return nextName;
+}
+
+function installWirelessControlStyle() {
+  if (typeof document === "undefined" || document.getElementById(WIRELESS_CONTROL_STYLE_ID)) return;
+  const style = document.createElement("style");
+  style.id = WIRELESS_CONTROL_STYLE_ID;
+  style.textContent = `
+.terry-wireless-channel-control{
+  position:relative;
+  display:flex;
+  align-items:center;
+  width:100%;
+  height:26px;
+  min-width:0;
+  box-sizing:border-box;
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:7px;
+  background:rgba(0,0,0,.2);
+  overflow:hidden;
+  pointer-events:auto;
+}
+.terry-wireless-channel-control:focus-within{
+  border-color:rgba(255,255,255,.45);
+  background:rgba(0,0,0,.28);
+}
+.terry-wireless-channel-control input,
+.terry-wireless-channel-control select{
+  display:block;
+  flex:1 1 auto;
+  width:100%;
+  min-width:0;
+  height:100%;
+  margin:0;
+  padding:0 7px;
+  border:0;
+  outline:none;
+  appearance:none;
+  background:transparent;
+  color:rgba(245,245,245,.9);
+  font:11px/26px Inter,system-ui,sans-serif;
+  text-align:center;
+  text-overflow:ellipsis;
+  color-scheme:dark;
+}
+.terry-wireless-channel-control input::placeholder{color:rgba(255,255,255,.38)}
+.terry-wireless-channel-control select{padding-right:18px;cursor:pointer}
+.terry-wireless-channel-control select option{background:#25272b;color:#e8e8e8}
+.terry-wireless-channel-control.is-select::after{
+  position:absolute;
+  top:9px;
+  right:8px;
+  width:5px;
+  height:5px;
+  border-right:1px solid rgba(255,255,255,.7);
+  border-bottom:1px solid rgba(255,255,255,.7);
+  content:"";
+  pointer-events:none;
+  transform:rotate(45deg);
+}
+`;
+  document.head.append(style);
+}
+
+function hideWirelessNativeWidget(widget) {
+  if (!widget) return;
+  widget.__terryWirelessHidden = true;
+  widget.hidden = true;
+  widget.options ||= {};
+  widget.options.hidden = true;
+  widget.computeSize = () => [0, -4];
+  if (widget.element?.style) widget.element.style.display = "none";
+  if (widget.inputEl?.style) widget.inputEl.style.display = "none";
+}
+
+function initializeWirelessControl(node) {
+  if (!isWireless(node) || node.__terryWirelessControl) return;
+  if (typeof document === "undefined" || typeof node.addDOMWidget !== "function") return;
+  const widget = wirelessChannelWidget(node);
+  if (!widget) return;
+  installWirelessControlStyle();
+
+  const pack = isWirelessPack(node);
+  const root = document.createElement("div");
+  root.className = `terry-wireless-channel-control${pack ? "" : " is-select"}`;
+  const control = document.createElement(pack ? "input" : "select");
+  if (pack) {
+    control.type = "text";
+    control.placeholder = labels().channelName;
+    control.spellcheck = false;
+  }
+  root.append(control);
+  root.addEventListener("pointerdown", (event) => event.stopPropagation());
+  control.addEventListener("keydown", (event) => {
+    event.stopPropagation();
+    if (pack && event.key === "Enter") {
+      event.preventDefault();
+      control.blur?.();
+    }
+  });
+  control.addEventListener("change", () => {
+    setWirelessChannel(node, control.value);
+    node.graph?.setDirtyCanvas?.(true, true);
+    node.graph?.change?.();
+  });
+
+  const dom = node.addDOMWidget("terry_wireless_channel_control", "terry_wireless_channel_control", root, {
+    serialize: false,
+    hideOnZoom: false,
+    margin: 0,
+    getMinHeight: () => 28,
+    getMaxHeight: () => 28,
+  });
+  if (!dom) {
+    root.remove?.();
+    return;
+  }
+  dom.serialize = false;
+  hideWirelessNativeWidget(widget);
+
+  node.__terryWirelessControl = {
+    root,
+    control,
+    widget: dom,
+    refresh() {
+      const selected = wirelessChannelName(node);
+      if (pack) {
+        control.placeholder = labels().channelName;
+        if (document.activeElement !== control) control.value = selected;
+        return;
+      }
+
+      const names = wirelessChannelNames(node.graph || app.graph);
+      const signature = `${localeCode()}\u0000${names.join("\u0000")}`;
+      if (control.__terryChannelSignature !== signature) {
+        control.__terryChannelSignature = signature;
+        control.replaceChildren?.();
+        const placeholder = document.createElement("option");
+        placeholder.value = "";
+        placeholder.textContent = labels().channelSelect;
+        control.append(placeholder);
+        for (const name of names) {
+          const option = document.createElement("option");
+          option.value = name;
+          option.textContent = name;
+          control.append(option);
+        }
+      }
+      control.value = selected;
+    },
+  };
+  node.__terryWirelessControl.refresh();
 }
 
 function initializeWirelessWidget(node) {
@@ -272,6 +427,7 @@ function initializeWirelessWidget(node) {
   widget.terryWirelessChannel = true;
   widget.serialize = true;
   setWirelessChannel(node, initial, false);
+  initializeWirelessControl(node);
 }
 
 function variableName(node) {
@@ -759,6 +915,10 @@ function startBridge() {
     if (localeChanged) lastBridgeLocale = nextLocale;
     for (const graph of allGraphs()) {
       for (const node of graph?._nodes || []) {
+        if (isWireless(node)) {
+          initializeWirelessControl(node);
+          if (localeChanged) node.__terryWirelessControl?.refresh?.();
+        }
         if (isPack(node)) {
           localizeFixedPorts(node, localeChanged);
           const last = node.inputs?.[node.inputs.length - 1];
@@ -948,6 +1108,7 @@ app.registerExtension({
       this.resizable = false;
       if (isWirelessDef) {
         initializeWirelessWidget(this);
+        initializeWirelessControl(this);
         const restored = wirelessChannelWidget(this)?.value
           ?? this.properties?.[WIRELESS_CHANNEL_PROPERTY]
           ?? "";

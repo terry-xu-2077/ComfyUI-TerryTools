@@ -347,10 +347,13 @@ function refreshVuePortStyle() {
   const packInputGroups = [];
   const unpackOutputGroups = [];
   const nodeLayoutRules = [];
-  const packEdgeMasks = [];
+  const nodeEdgeMasks = [];
   const wirelessInputGroups = [];
   const wirelessOutputGroups = [];
-  const wirelessWidgets = [];
+  const wirelessWidgetGrids = [];
+  const wirelessWidgetRows = [];
+  const wirelessBadges = [];
+  const wiredBadges = [];
   for (const node of vueBusNodes()) {
     if (node?.id == null) continue;
     const root = `[data-node-id="${attrEscape(node.id)}"]`;
@@ -358,6 +361,7 @@ function refreshVuePortStyle() {
     const compactWidth = Math.max(80, Number(node?.__terryBusCompactWidth) || 112);
     const minBodyHeight = Math.max(0, Number(node?.__terryBusMinHeight) || Number(node?.size?.[1]) || 0);
     const minHeight = minBodyHeight + nodeTitleHeight();
+    nodeEdgeMasks.push(`${expandedRoot}::after`);
     nodeLayoutRules.push(`
 ${expandedRoot}{
   --min-node-width:${compactWidth}px !important;
@@ -373,23 +377,22 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
 `);
     const type = nodeType(node);
     if (type === PACK_TYPE) {
-      packEdgeMasks.push(`${expandedRoot}::after`);
       packInputGroups.push(`${root} :has(> .lg-slot--input)`);
       packRows.push(`${root} .lg-slot--output`);
       packs.push(`${root} .lg-slot--output [data-testid="slot-connection-dot"]`);
+      wiredBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     } else if (type === UNPACK_TYPE) {
       unpackOutputGroups.push(`${root} :has(> .lg-slot--output)`);
       unpackRows.push(`${root} .lg-slot--input`);
       unpacks.push(`${root} .lg-slot--input [data-testid="slot-connection-dot"]`);
+      wiredBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     } else {
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
       groups.push(`${root} :has(> .lg-slot--${direction})`);
-      wirelessWidgets.push(
-        `${expandedRoot} [data-testid="node-widget"]`,
-        `${expandedRoot} [data-testid="widget"]`,
-        `${expandedRoot} [data-widget-name]`
-      );
+      wirelessWidgetGrids.push(`${expandedRoot} [data-testid="node-widgets"]`);
+      wirelessWidgetRows.push(`${expandedRoot} [data-testid="node-widget"]`);
+      wirelessBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
     }
   }
 
@@ -401,7 +404,7 @@ ${expandedRoot} [data-testid="node-inner-wrapper"]{
 
   style.textContent = nodeLayoutRules.length ? `
 ${nodeLayoutRules.join("\n")}
-${packEdgeMasks.length ? `${packEdgeMasks.join(",\n")}{
+${nodeEdgeMasks.length ? `${nodeEdgeMasks.join(",\n")}{
   content:"";
   position:absolute;
   top:${nodeTitleHeight()}px;
@@ -425,7 +428,7 @@ ${unpackOutputGroups.length ? `${unpackOutputGroups.join(",\n")}{
   right:0;
   top:50% !important;
   transform:translateY(-50%);
-  z-index:3;
+  z-index:4;
 }` : ""}
 ${wirelessInputGroups.length ? `${wirelessInputGroups.join(",\n")}{
   position:absolute !important;
@@ -439,16 +442,54 @@ ${wirelessOutputGroups.length ? `${wirelessOutputGroups.join(",\n")}{
   right:0;
   top:calc(50% - ${WIRELESS_WIDGET_HEIGHT * 0.5}px) !important;
   transform:translateY(-50%);
-  z-index:3;
+  z-index:4;
 }` : ""}
-${wirelessWidgets.length ? `${wirelessWidgets.join(",\n")}{
+${wirelessWidgetGrids.length ? `${wirelessWidgetGrids.join(",\n")}{
   position:absolute !important;
   left:6px;
   right:6px;
   bottom:7px;
+  display:block !important;
+  grid-template-columns:minmax(0,1fr) !important;
+  min-width:0 !important;
   width:auto !important;
   max-width:calc(100% - 12px);
-  z-index:4;
+  z-index:5;
+}` : ""}
+${wirelessWidgetRows.length ? `${wirelessWidgetRows.join(",\n")}{
+  display:block !important;
+  min-width:0 !important;
+  width:100% !important;
+  padding:0 !important;
+  grid-template-columns:minmax(0,1fr) !important;
+}` : ""}
+${wirelessWidgetRows.length ? `${wirelessWidgetRows.map((selector) => `${selector} > :first-child`).join(",\n")}{
+  display:none !important;
+}` : ""}
+${wirelessWidgetRows.length ? `${wirelessWidgetRows.map((selector) => `${selector} > :not(:first-child)`).join(",\n")}{
+  min-width:0 !important;
+  width:100% !important;
+  grid-column:1 / -1 !important;
+}` : ""}
+${wirelessBadges.length ? `${wirelessBadges.join(",\n")}{
+  display:none !important;
+}` : ""}
+${wiredBadges.length ? `${wiredBadges.join(",\n")}{
+  height:17px !important;
+  min-height:17px !important;
+  max-width:calc(100% - 10px);
+  padding:0 5px !important;
+  overflow:hidden;
+}` : ""}
+${wiredBadges.length ? `${wiredBadges.map((selector) => `${selector} > div`).join(",\n")}{
+  height:16px !important;
+  min-width:0 !important;
+  max-width:100%;
+}` : ""}
+${wiredBadges.length ? `${wiredBadges.map((selector) => `${selector} > div *`).join(",\n")}{
+  min-width:0 !important;
+  font-size:9px !important;
+  line-height:15px !important;
 }` : ""}
 ${packRows.length ? `${packRows.join(",\n")}{
   position:absolute !important;
