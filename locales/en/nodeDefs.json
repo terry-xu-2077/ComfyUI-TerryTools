@@ -59,23 +59,23 @@
     "outputs": {"0": {"name": "H3 Prompt"}}
   },
   "TerryWireBusPack": {
-    "display_name": "Bus In",
+    "display_name": "Bus-In",
     "description": "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
     "inputs": {"wire": {"name": "Add Wire"}},
     "outputs": {"0": {"name": "Bus"}}
   },
   "TerryWireBusUnpack": {
-    "display_name": "Bus Out",
+    "display_name": "Bus-Out",
     "description": "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
     "inputs": {"bus": {"name": "Bus"}}
   },
   "TerryWirelessBusPack": {
-    "display_name": "Wireless Bus In",
+    "display_name": "Wireless Bus-In",
     "description": "Publish multiple connections to an independent Terry wireless bus channel.",
     "inputs": {"wire": {"name": "Add Wire"}}
   },
   "TerryWirelessBusUnpack": {
-    "display_name": "Wireless Bus Out",
+    "display_name": "Wireless Bus-Out",
     "description": "Select a Terry wireless bus channel and restore all of its connections."
   }
 }
