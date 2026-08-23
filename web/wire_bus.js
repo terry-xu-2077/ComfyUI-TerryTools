@@ -127,16 +127,27 @@ function getNode(graph, id) {
 
 function allGraphs(root = app.graph) {
   if (!root) return [];
-  const result = [root];
-  const seen = new Set(result);
+  const result = [];
+  const seen = new Set();
   const queue = [root];
   while (queue.length) {
     const graph = queue.shift();
-    for (const node of graph?._nodes || []) {
-      if (node?.subgraph && !seen.has(node.subgraph)) {
-        seen.add(node.subgraph);
-        result.push(node.subgraph);
-        queue.push(node.subgraph);
+    if (!graph || seen.has(graph)) continue;
+    seen.add(graph);
+    result.push(graph);
+
+    for (const node of graph?._nodes || graph?.nodes || []) {
+      if (node?.subgraph && !seen.has(node.subgraph)) queue.push(node.subgraph);
+    }
+
+    for (const collection of [graph?.subgraphs, graph?._subgraphs]) {
+      if (!collection) continue;
+      const values = typeof collection.values === "function"
+        ? collection.values()
+        : Object.values(collection);
+      for (const value of values) {
+        const subgraph = value?.subgraph || value;
+        if (subgraph && !seen.has(subgraph)) queue.push(subgraph);
       }
     }
   }
@@ -176,9 +187,15 @@ function wirelessChannelName(node) {
 }
 
 function wirelessPacksInScope(graph) {
+  const currentGraph = graph || app.graph;
+  const root = currentGraph?.rootGraph || app.graph?.rootGraph || app.graph || currentGraph;
+  const candidateGraphs = [...graphAncestors(currentGraph), ...allGraphs(root)];
   const packs = [];
-  for (const candidateGraph of graphAncestors(graph || app.graph)) {
-    for (const node of candidateGraph?._nodes || []) {
+  const seen = new Set();
+  for (const candidateGraph of candidateGraphs) {
+    if (!candidateGraph || seen.has(candidateGraph)) continue;
+    seen.add(candidateGraph);
+    for (const node of candidateGraph?._nodes || candidateGraph?.nodes || []) {
       if (isWirelessPack(node) && wirelessChannelName(node)) packs.push(node);
     }
   }
