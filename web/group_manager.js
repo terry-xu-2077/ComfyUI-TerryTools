@@ -8,7 +8,7 @@ const ROW_GAP = 3;
 const PANEL_PADDING = 8;
 const NODE_MIN_WIDTH = 240;
 const REFRESH_INTERVAL = 450;
-const GROUP_NAME_WHITE_MIX = 0.25;
+const GROUP_NAME_WHITE_MIX = 0.30;
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
 
@@ -301,8 +301,15 @@ function installStyle() {
       overflow: hidden;
     }
     .terry-group-manager__select {
-      appearance: auto;
+      appearance: none;
+      -webkit-appearance: none;
       background: transparent;
+      background-image:
+        linear-gradient(45deg, transparent 50%, #ddd 50%),
+        linear-gradient(135deg, #ddd 50%, transparent 50%);
+      background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
+      background-repeat: no-repeat;
+      background-size: 5px 5px;
       border: 0;
       border-radius: 0;
       box-sizing: border-box;
@@ -313,7 +320,7 @@ function installStyle() {
       font: 12px Inter, system-ui, sans-serif;
       height: 100%;
       min-width: 0;
-      padding: 0 4px 0 12px;
+      padding: 0 22px 0 12px;
       width: 0;
     }
     .terry-group-manager__select option {
