@@ -200,6 +200,14 @@ function upstreamPack(graph, node, seen = new Set()) {
   if (seen.has(key)) return null;
   seen.add(key);
 
+  if (nodeType(node) === WIRELESS_UNPACK_TYPE) {
+    const resolved = node.resolveVirtualOutput?.(0);
+    if (resolved?.node) {
+      const found = upstreamPack(resolved.node.graph || graph, resolved.node, seen);
+      if (found) return found;
+    }
+  }
+
   if (nodeType(node) === GET_TYPE) {
     const setter = findSetter(node);
     const setterLinkId = setter?.node?.inputs?.[0]?.link;
@@ -482,6 +490,7 @@ function refreshVuePortStyle() {
   const packs = [];
   const unpacks = [];
   const wirelessBusInputs = [];
+  const wirelessBusOutputs = [];
   const packRows = [];
   const unpackRows = [];
   const packInputGroups = [];
@@ -555,6 +564,13 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
             `${expandedRoot} .lg-slot--input:nth-child(${slot + 1} of .lg-slot--input) [data-testid="slot-connection-dot"]`
           );
         }
+      } else if (type === WIRELESS_UNPACK_TYPE) {
+        for (let slot = 0; slot < (node.outputs?.length || 0); slot++) {
+          if (node.outputs[slot]?.type !== BUS_TYPE) continue;
+          wirelessBusOutputs.push(
+            `${expandedRoot} .lg-slot--output:nth-child(${slot + 1} of .lg-slot--output) [data-testid="slot-connection-dot"]`
+          );
+        }
       }
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
@@ -597,11 +613,12 @@ ${root}[data-collapsed]::before{
     }
   }
 
-  const selectors = [...packs, ...unpacks, ...wirelessBusInputs];
+  const selectors = [...packs, ...unpacks, ...wirelessBusInputs, ...wirelessBusOutputs];
   const dotSelectors = [
     ...packs.map((s) => `${s} [data-testid="slot-dot"]`),
     ...unpacks.map((s) => `${s} [data-testid="slot-dot"]`),
     ...wirelessBusInputs.map((s) => `${s} [data-testid="slot-dot"]`),
+    ...wirelessBusOutputs.map((s) => `${s} [data-testid="slot-dot"]`),
   ];
 
   style.textContent = nodeLayoutRules.length ? `
@@ -810,6 +827,12 @@ function patchBusNode(node) {
           const input = this.inputs[slot];
           if (input?.type === BUS_TYPE && input.link != null) {
             drawCapsulePort(ctx, this, false, slot);
+          }
+        }
+      } else if (nodeType(this) === WIRELESS_UNPACK_TYPE) {
+        for (let slot = 0; slot < (this.outputs?.length || 0); slot++) {
+          if (this.outputs[slot]?.type === BUS_TYPE) {
+            drawCapsulePort(ctx, this, true, slot);
           }
         }
       }

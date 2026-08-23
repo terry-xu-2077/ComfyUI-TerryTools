@@ -2,6 +2,7 @@ import { app } from "../../scripts/app.js";
 
 export const H3_BUS_TYPE = "TERRY_WIRE_BUS";
 export const H3_BUS_PACK_TYPE = "TerryWireBusPack";
+export const H3_WIRELESS_BUS_UNPACK_TYPE = "TerryWirelessBusUnpack";
 export const H3_MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO"]);
 
 export function h3NodeType(node) {
@@ -85,6 +86,18 @@ export function h3ResolveUpstream(graph, linkId, seen = new Set()) {
     const setter = h3FindSetter(node);
     if (setter?.inputs?.[0]?.link != null) {
       return h3ResolveUpstream(setter.graph || graph, setter.inputs[0].link, seen);
+    }
+  }
+  if (h3NodeType(node) === H3_WIRELESS_BUS_UNPACK_TYPE) {
+    const resolved = node.resolveVirtualOutput?.(slot);
+    if (resolved?.node) {
+      const resolvedSlot = Number(resolved.slot) || 0;
+      return {
+        node: resolved.node,
+        nodeId: Number(resolved.node.id),
+        slot: resolvedSlot,
+        type: String(resolved.node.outputs?.[resolvedSlot]?.type || link.type || "*").toUpperCase(),
+      };
     }
   }
 

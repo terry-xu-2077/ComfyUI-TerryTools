@@ -735,33 +735,14 @@ function packLaneEntries(pack) {
 
 function effectivePackLaneEntries(pack, seen = new Set()) {
   if (!pack || seen.has(pack)) return [];
-  const visited = new Set(seen);
-  visited.add(pack);
   const physical = packLaneEntries(pack);
-  if (!isWirelessPack(pack)) {
-    return physical.map((entry) => ({ ...entry, inputGraph: pack.graph }));
-  }
-
-  const expanded = [];
-  for (const entry of physical) {
-    if (entry.source?.type !== BUS_TYPE || !isWiredPack(entry.source.node)) {
-      expanded.push({ ...entry, inputGraph: pack.graph });
-      continue;
-    }
-
-    for (const nested of effectivePackLaneEntries(entry.source.node, visited)) {
-      const laneId = `${entry.laneId}::${nested.laneId}`;
-      expanded.push({
-        ...nested,
-        laneId,
-        lane: { ...nested.lane, id: laneId },
-        inputGraph: nested.inputGraph || entry.source.node.graph,
-        bridgeInput: entry.input,
-        bridgeLaneId: entry.laneId,
-      });
-    }
-  }
-  return numberDuplicateTypes(expanded);
+  return physical.map((entry) => ({
+    ...entry,
+    inputGraph: pack.graph,
+    ...(isWirelessPack(pack) && entry.source?.type === BUS_TYPE && isWiredPack(entry.source.node)
+      ? { bridgeInput: entry.input, bridgeLaneId: entry.laneId }
+      : {}),
+  }));
 }
 
 function disconnectAllOutputLinks(node, outputIndex) {
@@ -949,6 +930,7 @@ function syncUnpack(unpack, force = false) {
   );
 
   resizeCompactBusNode(unpack, entries.length, pack);
+  unpack.__terryBusRefreshVisual?.();
   unpack.graph?.setDirtyCanvas?.(true, true);
 }
 
