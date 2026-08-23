@@ -498,7 +498,7 @@ function resolveUpstream(graph, linkId, seen = new Set()) {
     nodeId,
     slot,
     type: outputType && outputType !== EMPTY_TYPE ? outputType : link.type || EMPTY_TYPE,
-    name: output?.name || output?.label || null,
+    name: output?.localized_name || output?.label || output?.name || null,
   };
 }
 
@@ -564,11 +564,22 @@ function storedPackLanes(pack) {
 
 function isAddWireInput(input) {
   if (!input || input.link != null || input[LANE_FIELD]) return false;
-  return String(input.name || "") === "wire" || String(input.type || EMPTY_TYPE) === EMPTY_TYPE;
+  const name = String(input.name || "").trim();
+  const label = String(input.label || "").trim();
+  return name === "wire" || label === labels().addWire;
+}
+
+function removeExtraAddWireInputs(pack) {
+  const inputs = pack?.inputs || [];
+  const lastIndex = inputs.length - 1;
+  for (let index = lastIndex - 1; index >= 0; index--) {
+    if (isAddWireInput(inputs[index])) pack.removeInput?.(index);
+  }
 }
 
 function ensurePackLanes(pack) {
   if (!pack) return [];
+  removeExtraAddWireInputs(pack);
   const stored = storedPackLanes(pack);
   const byId = new Map(stored.map((lane) => [lane.id, lane]));
   const inputs = pack.inputs || [];
@@ -1059,7 +1070,7 @@ app.registerExtension({
       localizeFixedPorts(this, true);
       if (isPackDef) {
         const first = this.inputs?.[0];
-        if (first) {
+        if (first && this.inputs.length === 1 && first.link == null && !first[LANE_FIELD]) {
           first.name = "wire";
           first.label = labels().addWire;
           first.type = EMPTY_TYPE;

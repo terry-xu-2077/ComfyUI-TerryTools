@@ -6,6 +6,7 @@ const WIRELESS_PACK_TYPE = "TerryWirelessBusPack";
 const WIRELESS_UNPACK_TYPE = "TerryWirelessBusUnpack";
 const EMPTY_TYPE = "*";
 const LANE_FIELD = "terry_lane_id";
+const PACK_LANES_PROPERTY = "terry_wire_bus_lanes";
 const WIRELESS_CHANNEL_PROPERTY = "terry_wireless_bus_channel";
 
 function nodeType(node) {
@@ -152,6 +153,9 @@ function applyNames(pack) {
   for (const entry of entries) {
     entry.input.name = entry.label;
     entry.input.label = entry.label;
+    const stored = (pack.properties?.[PACK_LANES_PROPERTY] || [])
+      .find((lane) => lane?.id === entry.laneId);
+    if (stored) stored.name = entry.label;
   }
 
   for (const node of pack.graph?._nodes || []) {
