@@ -59,14 +59,6 @@ def _with_sequence(stem: str, append_sequence: bool, index: int, padding: int = 
     return f"{stem}_{index:0{max(1, int(padding))}d}"
 
 
-def _output_name(rel_stem: str) -> str:
-    return Path(rel_stem).name
-
-
-def _output_names(rel_stems: list[str]) -> str:
-    return "\n".join(_output_name(stem) for stem in rel_stems)
-
-
 def _target_path(rel_stem: str, extension: str) -> tuple[str, str, str]:
     rel_stem = _sanitize_rel_path(rel_stem)
     rel = Path(rel_stem + "." + extension.lstrip("."))
@@ -201,11 +193,7 @@ class FileSave(io.ComfyNode):
                 ),
             ],
             hidden=[io.Hidden.prompt, io.Hidden.extra_pnginfo],
-            outputs=[
-                io.AnyType.Output("data", display_name="原内容"),
-                io.String.Output("filename", display_name="文件名"),
-                io.String.Output("extension", display_name="文件后缀"),
-            ],
+            outputs=[],
         )
 
     @classmethod
@@ -240,7 +228,7 @@ class FileSave(io.ComfyNode):
             target, _, _ = _target_path(rel_stem, ext)
             with open(target, "w", encoding="utf-8", newline="") as file:
                 file.write(data)
-            return io.NodeOutput(data, _output_name(rel_stem), ext)
+            return io.NodeOutput(ui=ui.PreviewText(data))
 
         if kind == "video":
             rel_stem = _with_sequence(stem, append_sequence, 1)
@@ -263,9 +251,6 @@ class FileSave(io.ComfyNode):
             else:
                 data.save_to(target, **kwargs)
             return io.NodeOutput(
-                data,
-                _output_name(rel_stem),
-                ext,
                 ui=ui.PreviewVideo(
                     [ui.SavedResult(filename_out, subfolder, io.FolderType.output)]
                 ),
@@ -287,10 +272,8 @@ class FileSave(io.ComfyNode):
                 quality=quality,
             )
             final_results = []
-            rel_stems = []
             for i, result in enumerate(saved):
                 rel_stem = _with_sequence(stem, append_sequence, 1 + i)
-                rel_stems.append(rel_stem)
                 target, filename_out, subfolder = _target_path(rel_stem, audio_format)
                 src = os.path.join(
                     folder_paths.get_output_directory(),
@@ -301,12 +284,7 @@ class FileSave(io.ComfyNode):
                 final_results.append(
                     ui.SavedResult(filename_out, subfolder, io.FolderType.output)
                 )
-            return io.NodeOutput(
-                data,
-                _output_names(rel_stems),
-                audio_format,
-                ui=ui.SavedAudios(final_results),
-            )
+            return io.NodeOutput(ui=ui.SavedAudios(final_results))
 
         if kind == "image":
             temp_prefix = f".terry_file_save_tmp/{uuid.uuid4().hex}"
@@ -318,10 +296,8 @@ class FileSave(io.ComfyNode):
                 compress_level=int(image_compress_level),
             )
             final_results = []
-            rel_stems = []
             for i, result in enumerate(saved):
                 rel_stem = _with_sequence(stem, append_sequence, 1 + i)
-                rel_stems.append(rel_stem)
                 target, filename_out, subfolder = _target_path(rel_stem, "png")
                 src = os.path.join(
                     folder_paths.get_output_directory(),
@@ -332,11 +308,6 @@ class FileSave(io.ComfyNode):
                 final_results.append(
                     ui.SavedResult(filename_out, subfolder, io.FolderType.output)
                 )
-            return io.NodeOutput(
-                data,
-                _output_names(rel_stems),
-                "png",
-                ui=ui.SavedImages(final_results),
-            )
+            return io.NodeOutput(ui=ui.SavedImages(final_results))
 
         raise RuntimeError("Unreachable")

@@ -1,5 +1,10 @@
 import { app } from "../../scripts/app.js";
-import { installFileSavePanel, scheduleFileSavePanel } from "./file_save_panel_ui.js";
+import {
+  installFileSavePanel,
+  installFileSavePreview,
+  scheduleFileSavePanel,
+  updateFileSavePreview,
+} from "./file_save_panel_ui.js";
 
 const NODE_ID = "TerryFileSave";
 const PANEL_PROP = "__terryFileSavePanel";
@@ -17,6 +22,7 @@ function isTarget(node) {
 
 function initNode(node) {
   if (!isTarget(node) || typeof node.addDOMWidget !== "function") return;
+  for (let index = (node.outputs?.length || 0) - 1; index >= 0; index--) node.removeOutput?.(index);
   installFileSavePanel(node, {
     panelProp:PANEL_PROP,
     widgetName:"terry_file_save_panel",
@@ -24,6 +30,7 @@ function initNode(node) {
     fileWidgets:FILE_WIDGETS,
     sequence:true,
   });
+  installFileSavePreview(node);
   scheduleFileSavePanel(node, PANEL_PROP);
 }
 
@@ -49,7 +56,20 @@ app.registerExtension({
       queueMicrotask(()=>initNode(this));
       return result;
     };
+    const executed = nodeType.prototype.onExecuted;
+    nodeType.prototype.onExecuted = function(message) {
+      const result = executed?.apply(this, arguments);
+      initNode(this);
+      updateFileSavePreview(this, message);
+      return result;
+    };
   },
   nodeCreated(node){ if(isTarget(node)) queueMicrotask(()=>initNode(node)); },
   loadedGraphNode(node){ if(isTarget(node)) queueMicrotask(()=>initNode(node)); },
+  onNodeOutputsUpdated(outputs) {
+    for (const [id, message] of Object.entries(outputs || {})) {
+      const node = app.graph?.getNodeById?.(id) || app.rootGraph?.getNodeById?.(id);
+      if (isTarget(node)) updateFileSavePreview(node, message);
+    }
+  },
 });

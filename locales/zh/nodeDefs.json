@@ -16,11 +16,6 @@
       "video_crf": {"name": "H.264 CRF"},
       "text_extension": {"name": "文本后缀"},
       "text_custom_extension": {"name": "自定义文本后缀"}
-    },
-    "outputs": {
-      "0": {"name": "原内容"},
-      "1": {"name": "文件名"},
-      "2": {"name": "文件后缀"}
     }
   },
   "TerryDateFormatter": {

@@ -1,4 +1,5 @@
 import { app } from "../../scripts/app.js";
+import { api } from "../../scripts/api.js";
 
 function installStyle() {
   if (document.getElementById("terry-file-save-panel-style")) return;
@@ -21,6 +22,18 @@ function installStyle() {
 .terry-file-save-check:after{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:rgba(10,10,10,.92);transition:transform .12s ease,background .12s ease}
 .terry-file-save-check:checked{background:rgba(96,165,250,.55)}
 .terry-file-save-check:checked:after{transform:translateX(18px);background:#f4f4f4}
+.terry-file-save-preview{width:100%;height:100%;min-height:140px;max-width:100%;min-width:0;box-sizing:border-box;padding:0 7px 8px;display:flex;align-items:stretch;justify-content:center;overflow:hidden;color:var(--input-text,#ddd);font-family:Inter,system-ui,sans-serif}
+.terry-file-save-preview-content{width:100%;height:100%;min-width:0;min-height:130px;box-sizing:border-box;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(0,0,0,.13);overflow:auto;display:flex;align-items:center;justify-content:center}
+.terry-file-save-preview-empty{color:rgba(255,255,255,.29);font-size:12px;text-align:center;padding:18px;user-select:none}
+.terry-file-save-preview-gallery{width:100%;height:100%;min-height:130px;box-sizing:border-box;padding:6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:6px;align-items:center;justify-items:center}
+.terry-file-save-preview-gallery.is-single{display:flex;align-items:center;justify-content:center}
+.terry-file-save-preview-image,.terry-file-save-preview-video{display:block;width:100%;max-width:100%;max-height:100%;min-width:0;object-fit:contain;border-radius:4px;background:#161616}
+.terry-file-save-preview-video{height:100%}
+.terry-file-save-preview-audios{width:100%;box-sizing:border-box;padding:12px;display:flex;flex-direction:column;gap:12px}
+.terry-file-save-preview-audio-item{width:100%;min-width:0;display:flex;flex-direction:column;gap:7px}
+.terry-file-save-preview-audio-name{font-size:11px;color:rgba(255,255,255,.66);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.terry-file-save-preview-audio{width:100%;height:36px;color-scheme:dark}
+.terry-file-save-preview-text{align-self:stretch;width:100%;min-height:130px;box-sizing:border-box;margin:0;padding:12px;color:#e5e7eb;background:transparent;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;user-select:text;overflow:auto}
 `;
   document.head.append(style);
 }
@@ -238,7 +251,10 @@ export function installFileSavePanel(node, config) {
       }
       try {
         const measured = node.computeSize?.();
-        if (measured) node.setSize?.([node.size?.[0] || measured[0] || 0, measured[1]]);
+        if (measured) node.setSize?.([
+          node.size?.[0] || measured[0] || 0,
+          Math.max(Number(node.size?.[1]) || 0, measured[1]),
+        ]);
       } catch {}
       node.setDirtyCanvas?.(true,true); app.graph?.setDirtyCanvas?.(true,true);
     }
@@ -253,4 +269,124 @@ export function installFileSavePanel(node, config) {
 export function scheduleFileSavePanel(node, prop) {
   const refresh = () => node?.[prop]?.refresh?.();
   queueMicrotask(refresh); requestAnimationFrame(refresh); setTimeout(refresh, 80); setTimeout(refresh, 200);
+}
+
+function previewFileUrl(file, timestamp) {
+  const query = new URLSearchParams();
+  query.set("filename", String(file?.filename || ""));
+  query.set("subfolder", String(file?.subfolder || ""));
+  query.set("type", String(file?.type || "output"));
+  query.set("t", String(timestamp));
+  return api.apiURL(`/view?${query.toString()}`);
+}
+
+function previewItems(value) {
+  return Array.isArray(value) ? value.filter((item) => item?.filename) : [];
+}
+
+function isAnimatedPreview(message, files) {
+  const animated = Array.isArray(message?.animated) ? message.animated.some(Boolean) : Boolean(message?.animated);
+  return animated || files.some((file) => /\.(?:mp4|mkv|webm|mov|m4v|avi)$/i.test(String(file.filename || "")));
+}
+
+function showEmptyPreview(content) {
+  const empty = document.createElement("div");
+  empty.className = "terry-file-save-preview-empty";
+  empty.textContent = localeIsZh() ? "运行后显示预览" : "Run to preview";
+  content.replaceChildren(empty);
+}
+
+export function updateFileSavePreview(node, message) {
+  const preview = node?.__terryFileSavePreview;
+  if (!preview) return;
+  const content = preview.content;
+  const images = previewItems(message?.images);
+  const audios = previewItems(message?.audio);
+  const text = message?.text;
+  const timestamp = Date.now();
+
+  if (images.length) {
+    const animated = isAnimatedPreview(message, images);
+    const gallery = document.createElement("div");
+    gallery.className = `terry-file-save-preview-gallery${images.length === 1 ? " is-single" : ""}`;
+    for (const file of images) {
+      const media = document.createElement(animated ? "video" : "img");
+      media.className = animated ? "terry-file-save-preview-video" : "terry-file-save-preview-image";
+      media.src = previewFileUrl(file, timestamp);
+      if (animated) {
+        media.controls = true;
+        media.loop = true;
+        media.playsInline = true;
+        media.preload = "metadata";
+      } else {
+        media.alt = String(file.filename || "");
+        media.loading = "lazy";
+        media.draggable = false;
+      }
+      gallery.append(media);
+    }
+    content.replaceChildren(gallery);
+    preview.root.dataset.kind = animated ? "video" : "image";
+  } else if (audios.length) {
+    const list = document.createElement("div");
+    list.className = "terry-file-save-preview-audios";
+    for (const file of audios) {
+      const item = document.createElement("div");
+      item.className = "terry-file-save-preview-audio-item";
+      const name = document.createElement("div");
+      name.className = "terry-file-save-preview-audio-name";
+      name.textContent = String(file.filename || "");
+      const player = document.createElement("audio");
+      player.className = "terry-file-save-preview-audio";
+      player.controls = true;
+      player.preload = "metadata";
+      player.src = previewFileUrl(file, timestamp);
+      item.append(name, player);
+      list.append(item);
+    }
+    content.replaceChildren(list);
+    preview.root.dataset.kind = "audio";
+  } else if (text != null) {
+    const block = document.createElement("pre");
+    block.className = "terry-file-save-preview-text";
+    block.textContent = Array.isArray(text)
+      ? text.filter((part) => part != null).join("\n\n")
+      : String(text);
+    content.replaceChildren(block);
+    preview.root.dataset.kind = "text";
+  } else {
+    showEmptyPreview(content);
+    preview.root.dataset.kind = "empty";
+  }
+
+  node.setDirtyCanvas?.(true, true);
+  app.graph?.setDirtyCanvas?.(true, true);
+}
+
+export function installFileSavePreview(node) {
+  if (node?.__terryFileSavePreview) return node.__terryFileSavePreview;
+  if (!node || typeof node.addDOMWidget !== "function") return null;
+  installStyle();
+
+  const root = document.createElement("div");
+  root.className = "terry-file-save-preview";
+  root.dataset.kind = "empty";
+  const content = document.createElement("div");
+  content.className = "terry-file-save-preview-content";
+  root.append(content);
+  root.addEventListener("pointerdown", (event) => event.stopPropagation());
+
+  const dom = node.addDOMWidget("terry_file_save_preview", "terry_file_save_preview", root, {
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => 140,
+    getMaxHeight: () => Number.POSITIVE_INFINITY,
+  });
+  if (!dom) return null;
+  dom.serialize = false;
+  const preview = { root, content, dom };
+  node.__terryFileSavePreview = preview;
+  updateFileSavePreview(node, app.nodeOutputs?.[String(node.id)]);
+  node.__terryFileSavePanel?.refresh?.();
+  return preview;
 }
