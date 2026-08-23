@@ -365,6 +365,79 @@ function openNumberPicker(editor, chip, type, options, state) {
   }, { capture: true, signal: abort.signal }), 0);
 }
 
+function boundaryTag(node, backward) {
+  if (!node) return undefined;
+  if (node.nodeType === Node.TEXT_NODE) {
+    return String(node.nodeValue ?? node.textContent ?? "").replaceAll(CARET, "") ? null : undefined;
+  }
+  if (node.nodeType !== Node.ELEMENT_NODE || node.tagName === "BR") return null;
+  if (node.dataset?.raw != null) return node;
+  const children = [...(node.childNodes || [])];
+  if (backward) children.reverse();
+  for (const child of children) {
+    const result = boundaryTag(child, backward);
+    if (result !== undefined) return result;
+  }
+  return null;
+}
+
+function adjacentTag(editor, range, backward) {
+  let current = range.startContainer;
+  const offset = Number(range.startOffset) || 0;
+  if (!current || !editor.contains(current)) return null;
+
+  if (current.nodeType === Node.TEXT_NODE) {
+    const text = String(current.nodeValue ?? current.textContent ?? "");
+    const nearby = backward ? text.slice(0, offset) : text.slice(offset);
+    if (nearby.replaceAll(CARET, "")) return null;
+  } else {
+    const children = [...(current.childNodes || [])];
+    const index = backward ? offset - 1 : offset;
+    for (let at = index; at >= 0 && at < children.length; at += backward ? -1 : 1) {
+      const result = boundaryTag(children[at], backward);
+      if (result !== undefined) return result;
+    }
+  }
+
+  while (current && current !== editor) {
+    let sibling = backward ? current.previousSibling : current.nextSibling;
+    while (sibling) {
+      const result = boundaryTag(sibling, backward);
+      if (result !== undefined) return result;
+      sibling = backward ? sibling.previousSibling : sibling.nextSibling;
+    }
+    current = current.parentNode || current.parentElement;
+    if (current !== editor && /^(DIV|P|LI)$/.test(String(current?.tagName || ""))) return null;
+  }
+  return null;
+}
+
+function deleteAdjacentTag(editor, event, options) {
+  if (!new Set(["Backspace", "Delete"]).has(event.key)
+    || event.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+  const selection = window.getSelection?.();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (range.collapsed === false || selection.isCollapsed === false) return;
+  const tag = adjacentTag(editor, range, event.key === "Backspace");
+  if (!tag) return;
+
+  const parent = tag.parentNode || tag.parentElement;
+  if (!parent) return;
+  const offset = [...(parent.childNodes || [])].indexOf(tag);
+  event.preventDefault();
+  event.stopPropagation();
+  tag.remove();
+
+  const caret = document.createRange();
+  caret.setStart(parent, Math.max(0, offset));
+  caret.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(caret);
+  options.onChange?.();
+  editor.dispatchEvent?.(new Event("terrychange", { bubbles: true }));
+}
+
 export function bindH3TagInteractions(editor, options = {}) {
   if (!editor || editor.__terryH3RichTextInteractions) return;
   editor.__terryH3RichTextInteractions = true;
@@ -378,6 +451,7 @@ export function bindH3TagInteractions(editor, options = {}) {
     event.stopPropagation();
     openNumberPicker(editor, chip, type, options, state);
   });
+  editor.addEventListener("keydown", (event) => deleteAdjacentTag(editor, event, options));
 }
 
 export function installH3RichTextStyles() {
