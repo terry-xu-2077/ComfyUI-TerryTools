@@ -111,6 +111,27 @@ function groupDescriptor(group, graph, graphIndex, groupIndex) {
   return { group, graph, graphId, groupId, groupIndex, key, title, label: title, color };
 }
 
+function visibleGroupNameColor(color) {
+  const value = String(color || "").trim();
+  if (!value || value.toLowerCase() === "black") return "";
+
+  let channels;
+  const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
+  if (hex) {
+    const expanded = hex.length <= 4
+      ? hex.slice(0, 3).split("").map((part) => part + part).join("")
+      : hex.slice(0, 6);
+    channels = [0, 2, 4].map((index) => Number.parseInt(expanded.slice(index, index + 2), 16));
+  } else {
+    const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (match) channels = match.slice(1, 4).map(Number);
+  }
+  if (!channels) return value;
+
+  const brightness = (channels[0] * 299 + channels[1] * 587 + channels[2] * 114) / 1000;
+  return brightness >= 64 ? value : "";
+}
+
 function workflowGroups() {
   const result = [];
   for (const [graphIndex, graph] of allGraphs().entries()) {
@@ -383,7 +404,8 @@ function buildRow(node, panel, groups, entry, index) {
   select.append(makeOption("", text.choose));
 
   const selected = entry ? matchingGroup(entry, groups) : null;
-  if (selected?.color) select.style.color = selected.color;
+  const groupNameColor = visibleGroupNameColor(selected?.color);
+  if (groupNameColor) select.style.color = groupNameColor;
   const selectedElsewhere = new Set(
     savedGroups(node)
       .filter((candidate) => candidate !== entry)
