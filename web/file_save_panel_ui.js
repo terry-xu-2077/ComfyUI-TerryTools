@@ -6,8 +6,8 @@ function installStyle() {
   const style = document.createElement("style");
   style.id = "terry-file-save-panel-style";
   style.textContent = `
-.terry-file-save-panel{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:6px 7px 8px;font-family:Inter,system-ui,sans-serif;color:var(--input-text,#ddd);display:flex;flex-direction:column;gap:9px;overflow:hidden}
-.terry-file-save-card{width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:8px;border:1px solid rgba(255,255,255,.11);border-radius:7px;background:rgba(0,0,0,.12);display:flex;flex-direction:column;gap:7px;overflow:hidden}
+.terry-file-save-panel{width:100%;height:100%;max-width:100%;min-width:0;min-height:0;box-sizing:border-box;padding:6px 7px 8px;font-family:Inter,system-ui,sans-serif;color:var(--input-text,#ddd);display:flex;flex-direction:column;gap:9px;overflow:hidden}
+.terry-file-save-card{flex:0 0 auto;width:100%;max-width:100%;min-width:0;box-sizing:border-box;padding:8px;border:1px solid rgba(255,255,255,.11);border-radius:7px;background:rgba(0,0,0,.12);display:flex;flex-direction:column;gap:7px;overflow:hidden}
 .terry-file-save-card.is-media{border-color:rgba(96,165,250,.22);background:rgba(96,165,250,.035)}
 .terry-file-save-card.is-file{border-color:rgba(255,255,255,.11);background:rgba(0,0,0,.10)}
 .terry-file-save-row{width:100%;max-width:100%;min-width:0;box-sizing:border-box;display:grid;grid-template-columns:minmax(0,36%) minmax(0,1fr);align-items:center;gap:10px;min-height:30px}
@@ -22,7 +22,7 @@ function installStyle() {
 .terry-file-save-check:after{content:"";position:absolute;width:18px;height:18px;left:3px;top:3px;border-radius:50%;background:rgba(10,10,10,.92);transition:transform .12s ease,background .12s ease}
 .terry-file-save-check:checked{background:rgba(96,165,250,.55)}
 .terry-file-save-check:checked:after{transform:translateX(18px);background:#f4f4f4}
-.terry-file-save-preview{width:100%;height:100%;min-height:140px;max-width:100%;min-width:0;box-sizing:border-box;padding:0 7px 8px;display:flex;align-items:stretch;justify-content:center;overflow:hidden;color:var(--input-text,#ddd);font-family:Inter,system-ui,sans-serif}
+.terry-file-save-preview{flex:1 1 auto;width:100%;min-height:140px;max-width:100%;min-width:0;box-sizing:border-box;padding:0;display:flex;align-items:stretch;justify-content:center;overflow:hidden;color:var(--input-text,#ddd);font-family:Inter,system-ui,sans-serif}
 .terry-file-save-preview-content{width:100%;height:100%;min-width:0;min-height:130px;box-sizing:border-box;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(0,0,0,.13);overflow:auto;display:flex;align-items:center;justify-content:center}
 .terry-file-save-preview-empty{color:rgba(255,255,255,.29);font-size:12px;text-align:center;padding:18px;user-select:none}
 .terry-file-save-preview-gallery{width:100%;height:100%;min-height:130px;box-sizing:border-box;padding:6px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:6px;align-items:center;justify-items:center}
@@ -204,7 +204,21 @@ export function installFileSavePanel(node, config) {
   for (const name of config.fileWidgets) add(name, fileCard);
 
   const dom = node.addDOMWidget(config.widgetName, config.widgetName, root, {
-    serialize:false, hideOnZoom:false, getMinHeight:() => 80, getMaxHeight:() => 520,
+    serialize: false,
+    hideOnZoom: false,
+    getMinHeight: () => {
+      const visibleRows = [...controls.values()].filter((item) => item.row.style.display !== "none").length;
+      const visibleCards = [mediaCard, fileCard].filter((card) => card.style.display !== "none").length;
+      return Math.max(
+        220,
+        visibleRows * 30
+          + Math.max(0, visibleRows - visibleCards) * 7
+          + visibleCards * 16
+          + visibleCards * 9
+          + 154,
+      );
+    },
+    getMaxHeight: () => Number.POSITIVE_INFINITY,
   });
   dom.serialize = false;
 
@@ -365,7 +379,8 @@ export function updateFileSavePreview(node, message) {
 
 export function installFileSavePreview(node) {
   if (node?.__terryFileSavePreview) return node.__terryFileSavePreview;
-  if (!node || typeof node.addDOMWidget !== "function") return null;
+  const panel = node?.__terryFileSavePanel;
+  if (!panel?.root || !panel.dom) return null;
   installStyle();
 
   const root = document.createElement("div");
@@ -375,18 +390,11 @@ export function installFileSavePreview(node) {
   content.className = "terry-file-save-preview-content";
   root.append(content);
   root.addEventListener("pointerdown", (event) => event.stopPropagation());
+  panel.root.append(root);
 
-  const dom = node.addDOMWidget("terry_file_save_preview", "terry_file_save_preview", root, {
-    serialize: false,
-    hideOnZoom: false,
-    getMinHeight: () => 140,
-    getMaxHeight: () => Number.POSITIVE_INFINITY,
-  });
-  if (!dom) return null;
-  dom.serialize = false;
-  const preview = { root, content, dom };
+  const preview = { root, content, dom: panel.dom };
   node.__terryFileSavePreview = preview;
   updateFileSavePreview(node, app.nodeOutputs?.[String(node.id)]);
-  node.__terryFileSavePanel?.refresh?.();
+  panel.refresh?.();
   return preview;
 }
