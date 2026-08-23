@@ -291,7 +291,7 @@ function commands(node, mode) {
     { category: "structure", label: "detailed_description", detail: "逐镜头详细描述", raw: "detailed_description:" },
     { category: "structure", label: "integrated_multimodal_description", detail: "T2VA / I2VA / FL2VA / L2VA 主字段", raw: "integrated_multimodal_description:" },
     { category: "structure", label: "overall_soundscape", detail: "环境声、动作声与非语言人声汇总", raw: "overall_soundscape:" },
-    { category: "structure", label: "non_diegetic_music", detail: "非剧情内音乐", raw: "non_diegetic_music:" },
+    { category: "structure", label: "non_diegetic_music", detail: "非剧情内音乐", raw: "non_diegetic_music:", defaultBody: "N/A" },
     { category: "shot", label: `[Shot ${shot}]`, detail: `插入第 ${shot} 个镜头分段标签`, raw: `[Shot ${shot}]` },
     { category: "shot", label: `Speaker S${speaker}`, detail: "插入下一个全局说话人编号", raw: `(S${speaker})`, kind: "speaker" },
     { category: "dialogue", label: "对白块", detail: "插入可编辑对白块", raw: `<d>[${defaultDialogueLanguage()}] </d>`, kind: "dialogue" },
@@ -311,7 +311,10 @@ function commands(node, mode) {
 function category(id) { return CATEGORY_META.find((item) => item.id === id) || { id, label: id, icon: "›", detail: "" }; }
 function chooseCommand(controller, state, command) {
   const token = createToken(controller, command.raw || "");
-  insertAt(controller.editor, state.range, token, controller.onChange);
+  const content = command.defaultBody == null
+    ? token
+    : [token, document.createElement("br"), document.createTextNode(String(command.defaultBody))];
+  insertAt(controller.editor, state.range, content, controller.onChange);
   closeMenu(controller);
   if (command.kind !== "dialogue") return;
   const body = token.querySelector?.(".terry-h3-dialogue-text");
