@@ -484,18 +484,20 @@ function resolveUpstream(graph, linkId, seen = new Set()) {
 
   if (isUnpack(node)) {
     const pack = findPackFromUnpack(node);
+    if (pack) ensureUnpackLaneIds(node, ensurePackLanes(pack));
     const laneId = node.outputs?.[slot]?.[LANE_FIELD];
     const input = pack && laneId ? laneInput(pack, laneId) : null;
     return input?.link == null ? null : resolveUpstream(pack.graph, input.link, seen);
   }
 
   const output = node.outputs?.[slot];
+  const outputType = String(output?.type || "").trim();
   return {
     node,
     graph,
     nodeId,
     slot,
-    type: link.type || output?.type || EMPTY_TYPE,
+    type: outputType && outputType !== EMPTY_TYPE ? outputType : link.type || EMPTY_TYPE,
     name: output?.name || output?.label || null,
   };
 }
@@ -696,6 +698,26 @@ function disconnectAllOutputLinks(node, outputIndex) {
   }
 }
 
+function syncConnectionType(graph, linkId, type) {
+  const link = getLink(graph, linkId);
+  const nextType = String(type || EMPTY_TYPE).trim() || EMPTY_TYPE;
+  if (!link || nextType === EMPTY_TYPE || link.type === nextType) return;
+
+  const colors = globalThis.LGraphCanvas?.link_type_colors || {};
+  const previousColor = colors[link.type] || colors[String(link.type || "").toUpperCase()];
+  const currentColor = String(link.color || "").trim().toLowerCase();
+  const inheritedColor = previousColor
+    && currentColor
+    && currentColor === String(previousColor).trim().toLowerCase();
+
+  link.type = nextType;
+  if (inheritedColor) {
+    const nextColor = colors[nextType] || colors[nextType.toUpperCase()];
+    if (nextColor) link.color = nextColor;
+    else delete link.color;
+  }
+}
+
 function signatureForEntries(entries) {
   return entries.map((entry) =>
     `${entry.laneId}:${entry.source?.nodeId ?? ""}:${entry.source?.slot ?? ""}:${entry.type}:${entry.name}`
@@ -814,6 +836,7 @@ function syncUnpack(unpack, force = false) {
     output.type = entry.type || EMPTY_TYPE;
     output.name = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
     output.label = output.name;
+    for (const linkId of output.links || []) syncConnectionType(unpack.graph, linkId, output.type);
   }
 
   nodeProperties(unpack)[UNPACK_LANES_PROPERTY] = (unpack.outputs || []).map(
@@ -840,9 +863,12 @@ function refreshPackSlots(pack) {
   // stable lane ids before deciding whether an empty lane is still in use.
   for (const unpack of connectedUnpacksForPack(pack)) syncUnpack(unpack, true);
 
-  // An unplugged input is retained while any paired output is connected. It is
-  // garbage-collected only after both ends of that exact lane are unused.
-  const removable = entries.filter((entry) => !entry.source && !laneHasOutputLinks(pack, entry.laneId));
+  // A live input must never be removed merely because its upstream virtual
+  // output has not restored its lane identity yet. Unplugged lanes are retained
+  // while a paired output is connected and removed only when both ends are unused.
+  const removable = entries.filter((entry) =>
+    !entry.source && entry.input?.link == null && !laneHasOutputLinks(pack, entry.laneId)
+  );
   for (const entry of removable) {
     const index = (pack.inputs || []).findIndex((input) => input?.[LANE_FIELD] === entry.laneId);
     if (index >= 0) pack.removeInput?.(index);
@@ -857,7 +883,8 @@ function refreshPackSlots(pack) {
     if (!input) continue;
     input.name = entry.source ? entry.name : `lane_${entry.laneId}`;
     input.label = entry.source ? entry.name : emptyLaneLabel(entry.name, index);
-    input.type = entry.source?.type || EMPTY_TYPE;
+    input.type = entry.source?.type || (input.link != null ? entry.type : EMPTY_TYPE);
+    if (input.link != null) syncConnectionType(pack.graph, input.link, input.type);
   }
 
   const last = pack.inputs?.[pack.inputs.length - 1];
