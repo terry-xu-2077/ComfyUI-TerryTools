@@ -17,6 +17,9 @@ const COMPACT_NODE_HEADER_HEIGHT = 80;
 const COMPACT_NODE_LANE_HEIGHT = 26;
 const COMPACT_NODE_SLOT_PADDING = 56;
 const WIRELESS_WIDGET_HEIGHT = 38;
+const WIRELESS_CONTROL_HEIGHT = 26;
+const WIRELESS_CONTROL_MARGIN = 6;
+const WIRELESS_CONTROL_BOTTOM_PADDING = 8;
 const WIRELESS_CONTROL_STYLE_ID = "terry-wireless-bus-control-style";
 
 let laneSequence = 0;
@@ -46,10 +49,10 @@ function isChineseLocale() {
 function labels() {
   if (isChineseLocale()) {
     return {
-      packTitle: "总线-入",
-      unpackTitle: "总线-出",
-      wirelessPackTitle: "无线总线-入",
-      wirelessUnpackTitle: "无线总线-出",
+      packTitle: "🔗总线-入",
+      unpackTitle: "🔗总线-出",
+      wirelessPackTitle: "⛓️‍💥总线-入",
+      wirelessUnpackTitle: "⛓️‍💥总线-出",
       packDescription: "将任意数量、任意类型的连接汇总为一根虚拟总线，支持 KJNodes Get/Set。",
       unpackDescription: "从虚拟总线自动恢复原始连接的数量、类型和顺序，支持 KJNodes Get/Set。",
       wirelessPackDescription: "将多路连接发布到独立的 Terry 无线总线频道，不与 KJNodes Get/Set 混用。",
@@ -65,10 +68,10 @@ function labels() {
     };
   }
   return {
-    packTitle: "Bus-In",
-    unpackTitle: "Bus-Out",
-    wirelessPackTitle: "Wireless Bus-In",
-    wirelessUnpackTitle: "Wireless Bus-Out",
+    packTitle: "🔗 Bus-In",
+    unpackTitle: "🔗 Bus-Out",
+    wirelessPackTitle: "⛓️‍💥 Bus-In",
+    wirelessUnpackTitle: "⛓️‍💥 Bus-Out",
     packDescription: "Bundle any number of connections into one virtual bus. Supports KJNodes Get/Set.",
     unpackDescription: "Restore the original connection count, types and order from a virtual bus. Supports KJNodes Get/Set.",
     wirelessPackDescription: "Publish multiple connections to an independent Terry wireless bus channel.",
@@ -262,7 +265,9 @@ function installWirelessControlStyle() {
   display:flex;
   align-items:center;
   width:100%;
-  height:26px;
+  height:${WIRELESS_CONTROL_HEIGHT}px !important;
+  min-height:${WIRELESS_CONTROL_HEIGHT}px !important;
+  max-height:${WIRELESS_CONTROL_HEIGHT}px !important;
   min-width:0;
   box-sizing:border-box;
   border:1px solid rgba(255,255,255,.2);
@@ -281,7 +286,9 @@ function installWirelessControlStyle() {
   flex:1 1 auto;
   width:100%;
   min-width:0;
-  height:100%;
+  height:${WIRELESS_CONTROL_HEIGHT - 2}px !important;
+  min-height:${WIRELESS_CONTROL_HEIGHT - 2}px !important;
+  max-height:${WIRELESS_CONTROL_HEIGHT - 2}px !important;
   margin:0;
   padding:0 7px;
   border:0;
@@ -289,7 +296,7 @@ function installWirelessControlStyle() {
   appearance:none;
   background:transparent;
   color:rgba(245,245,245,.9);
-  font:11px/26px Inter,system-ui,sans-serif;
+  font:11px/${WIRELESS_CONTROL_HEIGHT - 2}px Inter,system-ui,sans-serif;
   text-align:center;
   text-overflow:ellipsis;
   color-scheme:dark;
@@ -358,9 +365,9 @@ function initializeWirelessControl(node) {
   const dom = node.addDOMWidget("terry_wireless_channel_control", "terry_wireless_channel_control", root, {
     serialize: false,
     hideOnZoom: false,
-    margin: 0,
-    getMinHeight: () => 28,
-    getMaxHeight: () => 28,
+    margin: WIRELESS_CONTROL_MARGIN,
+    getMinHeight: () => WIRELESS_CONTROL_HEIGHT + WIRELESS_CONTROL_MARGIN * 2,
+    getMaxHeight: () => WIRELESS_CONTROL_HEIGHT + WIRELESS_CONTROL_MARGIN * 2,
   });
   if (!dom) {
     root.remove?.();
@@ -759,7 +766,12 @@ function resizeCompactBusNode(node, laneCount) {
   node.__terryBusMinHeight = minHeight;
   node.__terryBusPreferredHeight = preferredHeight;
   node.__terryBusLayoutInitialized = true;
-  if (isWireless(node)) node.widgets_start_y = height - WIRELESS_WIDGET_HEIGHT + 6;
+  if (isWireless(node)) {
+    node.widgets_start_y = height
+      - WIRELESS_CONTROL_HEIGHT
+      - WIRELESS_CONTROL_BOTTOM_PADDING
+      - WIRELESS_CONTROL_MARGIN;
+  }
   node.setSize?.([width, height]);
 }
 

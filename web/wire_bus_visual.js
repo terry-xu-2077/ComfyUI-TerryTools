@@ -407,12 +407,11 @@ ${nodeLayoutRules.join("\n")}
 ${nodeEdgeMasks.length ? `${nodeEdgeMasks.join(",\n")}{
   content:"";
   position:absolute;
-  top:${nodeTitleHeight()}px;
-  right:-5px;
-  bottom:0;
-  width:10px;
-  background:var(--node-component-surface,#222);
-  border-bottom-right-radius:8px;
+  top:calc(${nodeTitleHeight()}px + 4px);
+  right:0;
+  bottom:8px;
+  width:6px;
+  background:var(--component-node-background,var(--node-component-surface,#222));
   pointer-events:none;
   z-index:3;
 }` : ""}
@@ -448,7 +447,7 @@ ${wirelessWidgetGrids.length ? `${wirelessWidgetGrids.join(",\n")}{
   position:absolute !important;
   left:6px;
   right:6px;
-  bottom:7px;
+  bottom:8px;
   display:block !important;
   grid-template-columns:minmax(0,1fr) !important;
   min-width:0 !important;
@@ -460,6 +459,9 @@ ${wirelessWidgetRows.length ? `${wirelessWidgetRows.join(",\n")}{
   display:block !important;
   min-width:0 !important;
   width:100% !important;
+  height:26px !important;
+  min-height:26px !important;
+  max-height:26px !important;
   padding:0 !important;
   grid-template-columns:minmax(0,1fr) !important;
 }` : ""}
@@ -469,6 +471,9 @@ ${wirelessWidgetRows.length ? `${wirelessWidgetRows.map((selector) => `${selecto
 ${wirelessWidgetRows.length ? `${wirelessWidgetRows.map((selector) => `${selector} > :not(:first-child)`).join(",\n")}{
   min-width:0 !important;
   width:100% !important;
+  height:26px !important;
+  min-height:26px !important;
+  max-height:26px !important;
   grid-column:1 / -1 !important;
 }` : ""}
 ${wirelessBadges.length ? `${wirelessBadges.join(",\n")}{
