@@ -113,7 +113,8 @@ function groupDescriptor(group, graph, graphIndex, groupIndex) {
 
 function visibleGroupNameColor(color) {
   const value = String(color || "").trim();
-  if (!value || value.toLowerCase() === "black") return "";
+  if (!value) return "";
+  if (value.toLowerCase() === "black") return "#e5e7eb";
 
   let channels;
   const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
@@ -129,7 +130,9 @@ function visibleGroupNameColor(color) {
   if (!channels) return value;
 
   const brightness = (channels[0] * 299 + channels[1] * 587 + channels[2] * 114) / 1000;
-  return brightness >= 64 ? value : "";
+  const colorSpread = Math.max(...channels) - Math.min(...channels);
+  if (brightness < 64 || (colorSpread <= 32 && brightness < 160)) return "#e5e7eb";
+  return value;
 }
 
 function workflowGroups() {
