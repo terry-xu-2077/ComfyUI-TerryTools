@@ -424,7 +424,8 @@ function buildRow(node, panel, groups, entry, index) {
 
   const selected = entry ? matchingGroup(entry, groups) : null;
   const groupNameColor = visibleGroupNameColor(selected?.color);
-  if (groupNameColor) select.style.color = groupNameColor;
+  if (!entry) select.style.color = "#6b6b6b";
+  else if (groupNameColor) select.style.color = groupNameColor;
   const selectedElsewhere = new Set(
     savedGroups(node)
       .filter((candidate) => candidate !== entry)
