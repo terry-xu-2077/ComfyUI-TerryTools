@@ -499,6 +499,7 @@ function refreshVuePortStyle() {
   const phantomOutputRows = [];
   const wirelessInputGroups = [];
   const wirelessOutputGroups = [];
+  const centeredWirelessBusGroups = [];
   const wirelessWidgetGrids = [];
   const wirelessWidgetRows = [];
   const wirelessBadges = [];
@@ -574,7 +575,12 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
       }
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
-      groups.push(`${expandedRoot} :has(> .lg-slot--${direction})`);
+      const group = `${expandedRoot} :has(> .lg-slot--${direction})`;
+      groups.push(group);
+      const slots = type === WIRELESS_PACK_TYPE ? node.inputs : node.outputs;
+      if (slots?.length === 1 && slots[0]?.type === BUS_TYPE) {
+        centeredWirelessBusGroups.push(group);
+      }
       wirelessWidgetGrids.push(`${expandedRoot} [data-testid="node-widgets"]`);
       wirelessWidgetRows.push(`${expandedRoot} [data-testid="node-widget"]`);
       wirelessBadges.push(`${expandedRoot} [data-testid^="node-body-"] > .mt-auto`);
@@ -655,6 +661,10 @@ ${wirelessOutputGroups.length ? `${wirelessOutputGroups.join(",\n")}{
   top:calc(50% - ${WIRELESS_WIDGET_HEIGHT * 0.5}px) !important;
   transform:translateY(-50%);
   z-index:4;
+}` : ""}
+${centeredWirelessBusGroups.length ? `${centeredWirelessBusGroups.join(",\n")}{
+  top:50% !important;
+  transform:translateY(-50%);
 }` : ""}
 ${wirelessWidgetGrids.length ? `${wirelessWidgetGrids.join(",\n")}{
   position:absolute !important;
@@ -780,7 +790,10 @@ function patchBusNode(node) {
   const originalOutputPos = node.getOutputPos;
   node.getInputPos = function (slot) {
     if (isNodeCollapsed(this)) return originalInputPos?.apply?.(this, arguments);
-    if (nodeType(this) === UNPACK_TYPE && Number(slot) === 0) {
+    if (
+      (nodeType(this) === UNPACK_TYPE && Number(slot) === 0)
+      || (nodeType(this) === WIRELESS_PACK_TYPE && this.inputs?.length === 1 && this.inputs?.[slot]?.type === BUS_TYPE)
+    ) {
       return [Number(this.pos?.[0] || 0), nodeVisualCenterY(this)];
     }
     if (nodeType(this) === PACK_TYPE || nodeType(this) === WIRELESS_PACK_TYPE) {
@@ -790,7 +803,10 @@ function patchBusNode(node) {
   };
   node.getOutputPos = function (slot) {
     if (isNodeCollapsed(this)) return originalOutputPos?.apply?.(this, arguments);
-    if (nodeType(this) === PACK_TYPE && Number(slot) === 0) {
+    if (
+      (nodeType(this) === PACK_TYPE && Number(slot) === 0)
+      || (nodeType(this) === WIRELESS_UNPACK_TYPE && this.outputs?.length === 1 && this.outputs?.[slot]?.type === BUS_TYPE)
+    ) {
       return [
         Number(this.pos?.[0] || 0) + Number(this.size?.[0] || 0),
         nodeVisualCenterY(this),
