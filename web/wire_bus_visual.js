@@ -304,6 +304,31 @@ function roundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath();
 }
 
+function bottomRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width * 0.5, height * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x + width, y);
+  ctx.lineTo(x + width, y + height - r);
+  ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+  ctx.lineTo(x + r, y + height);
+  ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+  ctx.lineTo(x, y);
+  ctx.closePath();
+}
+
+function strokeBottomRoundedRect(ctx, x, y, width, height, radius) {
+  const r = Math.min(radius, width * 0.5, height * 0.5);
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x, y + height - r);
+  ctx.quadraticCurveTo(x, y + height, x + r, y + height);
+  ctx.lineTo(x + width - r, y + height);
+  ctx.quadraticCurveTo(x + width, y + height, x + width, y + height - r);
+  ctx.lineTo(x + width, y);
+  ctx.stroke();
+}
+
 function drawCapsulePort(ctx, node, isOutput, slot = 0) {
   const global = isOutput ? pointForOutput(node, slot) : pointForInput(node, slot);
   const x = global[0] - Number(node?.pos?.[0] || 0);
@@ -419,8 +444,8 @@ function drawCollapsedWirelessChannel(ctx, node) {
     || Number(globalThis.LiteGraph?.NODE_COLLAPSED_WIDTH)
     || Number(node?.size?.[0])
     || 112;
-  const height = 20;
-  const top = 0;
+  const height = 22;
+  const top = -2;
   const colors = wirelessChannelColors(node);
 
   ctx.save();
@@ -428,14 +453,12 @@ function drawCollapsedWirelessChannel(ctx, node) {
   const textWidth = Number(ctx.measureText?.(channel)?.width) || channel.length * 8;
   const width = Math.min(180, Math.max(46, textWidth + 18));
   const left = (collapsedWidth - width) * 0.5;
-  ctx.fillStyle = colors.background;
-  ctx.fillRect?.(collapsedWidth * 0.5 - 10, -2, 20, 5);
-  roundedRect(ctx, left, top, width, height, height * 0.5);
+  bottomRoundedRect(ctx, left, top, width, height, 10);
   ctx.fillStyle = colors.background;
   ctx.fill();
   ctx.lineWidth = 1;
   ctx.strokeStyle = colors.border;
-  ctx.stroke();
+  strokeBottomRoundedRect(ctx, left, top, width, height, 10);
   ctx.fillStyle = "rgba(245,245,245,.88)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
@@ -520,19 +543,22 @@ ${root}[data-collapsed]::before{
   content:${cssText(channel)};
   position:absolute;
   left:50%;
-  top:100%;
+  top:calc(100% - 2px);
   transform:translateX(-50%);
   min-width:32px;
   max-width:168px;
-  height:20px;
+  height:22px;
   padding:0 9px;
   border:1px solid ${colors.border};
   border-top:0;
-  border-radius:3px 3px 10px 10px;
+  border-top-left-radius:0;
+  border-top-right-radius:0;
+  border-bottom-right-radius:10px;
+  border-bottom-left-radius:10px;
   box-sizing:border-box;
   background:${colors.background};
   color:rgba(245,245,245,.88);
-  font:11px/18px Inter,system-ui,sans-serif;
+  font:11px/20px Inter,system-ui,sans-serif;
   text-align:center;
   white-space:nowrap;
   overflow:hidden;
