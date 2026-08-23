@@ -37,6 +37,10 @@
     "inputs": {"a": {"name": "A"}, "b": {"name": "B"}},
     "outputs": {"0": {"name": "A"}, "1": {"name": "B"}}
   },
+  "TerryGroupManager": {
+    "display_name": "Terry Group Manager",
+    "description": "Manually select workflow groups and independently enable or bypass the nodes inside each group."
+  },
   "TerryH3PromptEditor": {
     "display_name": "Terry H3 Prompt Editor",
     "description": "Visual MiniMax H3 prompt editor with dynamic image, video and audio references. Use @ for media and / for H3 syntax commands; output is always standard H3 STRING text.",

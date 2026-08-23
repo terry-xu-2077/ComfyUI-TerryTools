@@ -9,6 +9,10 @@ const NODE_TITLES = {
     en: "Terry Video Compare",
     zh: "Terry 视频对比",
   },
+  TerryGroupManager: {
+    en: "Terry Group Manager",
+    zh: "Terry 分组开关",
+  },
   TerryH3PromptEditor: {
     en: "Terry H3 Prompt Editor",
     zh: "Terry H3 提示词编辑器",

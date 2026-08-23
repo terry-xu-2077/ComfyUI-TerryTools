@@ -37,6 +37,10 @@
     "inputs": {"a": {"name": "A"}, "b": {"name": "B"}},
     "outputs": {"0": {"name": "A"}, "1": {"name": "B"}}
   },
+  "TerryGroupManager": {
+    "display_name": "Terry 分组开关",
+    "description": "手动选择工作流分组，并分别启用或旁路每个分组中的节点。"
+  },
   "TerryH3PromptEditor": {
     "display_name": "Terry H3 提示词编辑器",
     "description": "可视化编写 MiniMax H3 提示词；支持动态数量图片、视频、音频参考；@ 插入媒体，/ 打开 H3 语法菜单；输出始终为标准 H3 原文 STRING。",
