@@ -325,7 +325,7 @@ function installStyle() {
     }
     .terry-group-manager__select option {
       background: #25272b !important;
-      color: #e8e8e8 !important;
+      color: #e8e8e8;
     }
     .terry-group-manager__select option:disabled {
       color: #92959d !important;
@@ -402,11 +402,13 @@ function resizeManager(node) {
   node.setDirtyCanvas?.(true, true);
 }
 
-function makeOption(value, label, disabled = false) {
+function makeOption(value, label, disabled = false, color = "") {
   const option = document.createElement("option");
   option.value = value;
   option.textContent = label;
   option.disabled = disabled;
+  const optionColor = visibleGroupNameColor(color);
+  if (optionColor && !disabled) option.style.color = optionColor;
   return option;
 }
 
@@ -435,7 +437,7 @@ function buildRow(node, panel, groups, entry, index) {
   }
   for (const item of groups) {
     if (selectedElsewhere.has(item.key)) continue;
-    select.append(makeOption(item.key, item.label));
+    select.append(makeOption(item.key, item.label, false, item.color));
   }
   select.value = selected?.key || (entry ? "__terry_missing__" : "");
 
