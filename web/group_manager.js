@@ -8,6 +8,7 @@ const ROW_GAP = 3;
 const PANEL_PADDING = 8;
 const NODE_MIN_WIDTH = 240;
 const REFRESH_INTERVAL = 450;
+const GROUP_NAME_WHITE_MIX = 0.25;
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
 
@@ -127,12 +128,18 @@ function visibleGroupNameColor(color) {
     const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
     if (match) channels = match.slice(1, 4).map(Number);
   }
-  if (!channels) return value;
+  if (!channels) {
+    return `color-mix(in srgb, ${value} ${(1 - GROUP_NAME_WHITE_MIX) * 100}%, #e5e7eb)`;
+  }
 
   const brightness = (channels[0] * 299 + channels[1] * 587 + channels[2] * 114) / 1000;
   const colorSpread = Math.max(...channels) - Math.min(...channels);
   if (brightness < 64 || (colorSpread <= 32 && brightness < 160)) return "#e5e7eb";
-  return value;
+  const light = [229, 231, 235];
+  const mixed = channels.map((channel, index) => Math.round(
+    channel * (1 - GROUP_NAME_WHITE_MIX) + light[index] * GROUP_NAME_WHITE_MIX
+  ));
+  return `rgb(${mixed.join(", ")})`;
 }
 
 function workflowGroups() {
