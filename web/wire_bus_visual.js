@@ -442,6 +442,7 @@ function refreshVuePortStyle() {
 
   const packs = [];
   const unpacks = [];
+  const wirelessBusInputs = [];
   const packRows = [];
   const unpackRows = [];
   const packInputGroups = [];
@@ -508,6 +509,13 @@ ${root}[data-collapsed] [data-testid="node-inner-wrapper"]{
     } else {
       if (type === WIRELESS_PACK_TYPE) {
         phantomOutputRows.push(`${expandedRoot} .lg-slot--output`);
+        for (let slot = 0; slot < (node.inputs?.length || 0); slot++) {
+          const input = node.inputs[slot];
+          if (input?.type !== BUS_TYPE || input.link == null) continue;
+          wirelessBusInputs.push(
+            `${expandedRoot} .lg-slot--input:nth-child(${slot + 1} of .lg-slot--input) [data-testid="slot-connection-dot"]`
+          );
+        }
       }
       const groups = type === WIRELESS_PACK_TYPE ? wirelessInputGroups : wirelessOutputGroups;
       const direction = type === WIRELESS_PACK_TYPE ? "input" : "output";
@@ -550,10 +558,11 @@ ${root}[data-collapsed]::before{
     }
   }
 
-  const selectors = [...packs, ...unpacks];
+  const selectors = [...packs, ...unpacks, ...wirelessBusInputs];
   const dotSelectors = [
     ...packs.map((s) => `${s} [data-testid="slot-dot"]`),
     ...unpacks.map((s) => `${s} [data-testid="slot-dot"]`),
+    ...wirelessBusInputs.map((s) => `${s} [data-testid="slot-dot"]`),
   ];
 
   style.textContent = nodeLayoutRules.length ? `
@@ -757,6 +766,14 @@ function patchBusNode(node) {
     try {
       if (nodeType(this) === PACK_TYPE) drawCapsulePort(ctx, this, true, 0);
       else if (nodeType(this) === UNPACK_TYPE) drawCapsulePort(ctx, this, false, 0);
+      else if (nodeType(this) === WIRELESS_PACK_TYPE) {
+        for (let slot = 0; slot < (this.inputs?.length || 0); slot++) {
+          const input = this.inputs[slot];
+          if (input?.type === BUS_TYPE && input.link != null) {
+            drawCapsulePort(ctx, this, false, slot);
+          }
+        }
+      }
     } catch (error) {
       console.warn("[Terry Wire Bus] Failed to draw bus capsule port", error);
     }

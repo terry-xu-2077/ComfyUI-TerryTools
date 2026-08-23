@@ -78,8 +78,12 @@ function resolveSource(graph, linkId, seen = new Set()) {
   if (isUnpack(source)) {
     const pack = findPackForUnpack(source);
     const laneId = source.outputs?.[slot]?.[LANE_FIELD];
-    const input = (pack?.inputs || []).find((item) => item?.[LANE_FIELD] === laneId);
-    return input?.link == null ? null : resolveSource(pack.graph || graph, input.link, seen);
+    const entry = pack?.__terryBusLaneEntries?.().find((item) => item?.laneId === laneId);
+    const input = entry?.input
+      || (pack?.inputs || []).find((item) => item?.[LANE_FIELD] === laneId);
+    return input?.link == null
+      ? null
+      : resolveSource(entry?.inputGraph || pack.graph || graph, input.link, seen);
   }
   return { node: source, slot, output: source.outputs?.[slot] || null };
 }

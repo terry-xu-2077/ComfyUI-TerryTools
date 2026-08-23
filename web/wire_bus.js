@@ -501,10 +501,12 @@ function resolveUpstream(graph, linkId, seen = new Set()) {
 
   if (isUnpack(node)) {
     const pack = findPackFromUnpack(node);
-    if (pack) ensureUnpackLaneIds(node, ensurePackLanes(pack));
+    const entries = pack ? effectivePackLaneEntries(pack) : [];
+    if (pack) ensureUnpackLaneIds(node, entries.map((entry) => entry.lane));
     const laneId = node.outputs?.[slot]?.[LANE_FIELD];
-    const input = pack && laneId ? laneInput(pack, laneId) : null;
-    return input?.link == null ? null : resolveUpstream(pack.graph, input.link, seen);
+    const entry = laneId ? entries.find((item) => item.laneId === laneId) : null;
+    const input = entry?.input;
+    return input?.link == null ? null : resolveUpstream(entry.inputGraph || pack.graph, input.link, seen);
   }
 
   const output = node.outputs?.[slot];
@@ -717,6 +719,37 @@ function packLaneEntries(pack) {
   return numbered;
 }
 
+function effectivePackLaneEntries(pack, seen = new Set()) {
+  if (!pack || seen.has(pack)) return [];
+  const visited = new Set(seen);
+  visited.add(pack);
+  const physical = packLaneEntries(pack);
+  if (!isWirelessPack(pack)) {
+    return physical.map((entry) => ({ ...entry, inputGraph: pack.graph }));
+  }
+
+  const expanded = [];
+  for (const entry of physical) {
+    if (entry.source?.type !== BUS_TYPE || !isWiredPack(entry.source.node)) {
+      expanded.push({ ...entry, inputGraph: pack.graph });
+      continue;
+    }
+
+    for (const nested of effectivePackLaneEntries(entry.source.node, visited)) {
+      const laneId = `${entry.laneId}::${nested.laneId}`;
+      expanded.push({
+        ...nested,
+        laneId,
+        lane: { ...nested.lane, id: laneId },
+        inputGraph: nested.inputGraph || entry.source.node.graph,
+        bridgeInput: entry.input,
+        bridgeLaneId: entry.laneId,
+      });
+    }
+  }
+  return numberDuplicateTypes(expanded);
+}
+
 function disconnectAllOutputLinks(node, outputIndex) {
   for (const linkId of [...(node.outputs?.[outputIndex]?.links || [])]) {
     const link = getLink(node.graph, linkId);
@@ -834,7 +867,16 @@ function resizeCompactBusNode(node, laneCount, pairedPack = null) {
 function syncUnpack(unpack, force = false) {
   localizeFixedPorts(unpack);
   const pack = findPackFromUnpack(unpack);
-  const entries = pack ? packLaneEntries(pack) : [];
+  const entries = pack ? effectivePackLaneEntries(pack) : [];
+  if (
+    isWirelessPack(pack)
+    && entries.some((entry) => entry.bridgeInput)
+    && pack.__terryBusPublishedLaneCount !== entries.length
+  ) {
+    resizeCompactBusNode(pack, entries.length);
+    pack.__terryBusPublishedLaneCount = entries.length;
+    pack.__terryBusRefreshVisual?.();
+  }
   const signature = signatureForEntries(entries);
   const matchingPackHeight = !pack || Math.abs(
     Number(unpack.size?.[1] || 0) - Number(pack.size?.[1] || 0)
@@ -932,7 +974,10 @@ function refreshPackSlots(pack) {
     last.type = EMPTY_TYPE;
   }
 
-  resizeCompactBusNode(pack, entries.length);
+  const publishedEntries = isWirelessPack(pack) ? effectivePackLaneEntries(pack) : entries;
+  resizeCompactBusNode(pack, publishedEntries.length);
+  pack.__terryBusPublishedLaneCount = publishedEntries.length;
+  pack.__terryBusRefreshVisual?.();
   queueMicrotask(syncAllUnpacks);
   pack.graph?.setDirtyCanvas?.(true, true);
 }
@@ -954,7 +999,7 @@ function patchGraphToPrompt() {
           if (!isUnpack(unpack)) continue;
           const pack = findPackFromUnpack(unpack);
           if (!pack) continue;
-          const entries = packLaneEntries(pack);
+          const entries = effectivePackLaneEntries(pack);
 
           for (const entry of entries) {
             const source = entry?.source;
@@ -1157,17 +1202,24 @@ app.registerExtension({
         // the real execution dependency before graphToPrompt expands outputs.
         nodeType.prototype.getInputLink = function (slot) {
           const pack = findPackFromUnpack(this);
-          if (!pack || pack.graph !== this.graph) return null;
+          if (!pack) return null;
           const laneId = this.outputs?.[Number(slot) || 0]?.[LANE_FIELD];
-          const input = laneId ? laneInput(pack, laneId) : null;
-          return input?.link == null ? null : getLink(pack.graph, input.link);
+          const entry = laneId
+            ? effectivePackLaneEntries(pack).find((item) => item.laneId === laneId)
+            : null;
+          const inputGraph = entry?.inputGraph || pack.graph;
+          return entry?.input?.link == null || inputGraph !== this.graph
+            ? null
+            : getLink(inputGraph, entry.input.link);
         };
 
         nodeType.prototype.resolveVirtualOutput = function (slot) {
           const pack = findPackFromUnpack(this);
           const laneId = this.outputs?.[Number(slot) || 0]?.[LANE_FIELD];
-          const input = pack && laneId ? laneInput(pack, laneId) : null;
-          const source = input?.link == null ? null : resolveUpstream(pack.graph, input.link);
+          const entry = pack && laneId
+            ? effectivePackLaneEntries(pack).find((item) => item.laneId === laneId)
+            : null;
+          const source = entry?.source;
           return source ? { node: source.node, slot: source.slot } : undefined;
         };
       }
@@ -1190,12 +1242,22 @@ app.registerExtension({
     };
 
     if (isPackDef) {
-      nodeType.prototype.onConnectInput = function (slot, type) {
-        return slot >= 0 && type !== BUS_TYPE;
+      nodeType.prototype.__terryBusLaneEntries = function () {
+        return effectivePackLaneEntries(this);
+      };
+      nodeType.prototype.onConnectInput = function (slot, type, output, originNode) {
+        return slot >= 0 && (type !== BUS_TYPE || (
+          isWirelessDef && (isWiredPack(originNode) || isReroute(originNode) || isGet(originNode))
+        ));
       };
       if (!isWirelessDef) {
         nodeType.prototype.onConnectOutput = function (slot, type, input, targetNode) {
-          return slot === 0 && (isWiredUnpack(targetNode) || isReroute(targetNode) || isSet(targetNode));
+          return slot === 0 && (
+            isWiredUnpack(targetNode)
+            || isWirelessPack(targetNode)
+            || isReroute(targetNode)
+            || isSet(targetNode)
+          );
         };
       }
     } else if (!isWirelessDef) {
