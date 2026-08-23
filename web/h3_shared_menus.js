@@ -1,6 +1,6 @@
 import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
-import { createH3TokenNode } from "./h3_rich_text.js";
+import { createH3TokenNode, H3_CAMERA_COMMANDS } from "./h3_rich_text.js";
 
 const PROMPT_LINKS = "terry_h3_virtual_media_links";
 const TIMELINE_LINKS = "terry_h3_timeline_virtual_media_links";
@@ -15,29 +15,6 @@ const CATEGORY_META = [
   { id: "retention", label: "保留关系", icon: "◎", detail: "视觉与音频引用关系" },
   { id: "task", label: "任务类型", icon: "▣", detail: "Summary 的任务类型前缀" },
   { id: "camera", label: "镜头运动", icon: "◉", detail: "常用运镜方式与镜头运动" },
-];
-
-const CAMERA_COMMANDS = [
-  ["推进", "Push In", "镜头向主体推进", "The camera pushes in "],
-  ["拉远", "Pull Out", "镜头向后拉远", "The camera pulls out "],
-  ["左摇", "Pan Left", "镜头水平向左摇动", "The camera pans left "],
-  ["右摇", "Pan Right", "镜头水平向右摇动", "The camera pans right "],
-  ["左移", "Truck Left", "摄像机整体向左平移", "The camera trucks left "],
-  ["右移", "Truck Right", "摄像机整体向右平移", "The camera trucks right "],
-  ["上摇", "Tilt Up", "镜头向上俯仰摇动", "The camera tilts up "],
-  ["下摇", "Tilt Down", "镜头向下俯仰摇动", "The camera tilts down "],
-  ["升镜", "Pedestal Up", "摄像机整体向上升起", "The camera moves upward "],
-  ["降镜", "Pedestal Down", "摄像机整体向下降低", "The camera moves downward "],
-  ["环绕", "Arc Shot", "摄像机沿弧线环绕主体", "The camera moves in an arc around the subject "],
-  ["跟拍", "Tracking Shot", "镜头跟随移动中的主体", "The camera follows the moving subject in a tracking shot "],
-  ["固定镜头", "Static Shot", "摄像机保持固定不动", "The camera holds a static shot "],
-  ["变焦推近", "Zoom In", "通过镜头变焦放大画面", "The camera zooms in "],
-  ["变焦拉远", "Zoom Out", "通过镜头变焦缩小画面", "The camera zooms out "],
-  ["第一人称视角", "POV", "使用角色的主观视角", "POV, "],
-  ["顺时针旋转", "Roll Clockwise", "镜头沿光轴顺时针旋转", "The camera rolls clockwise "],
-  ["逆时针旋转", "Roll Counterclockwise", "镜头沿光轴逆时针旋转", "The camera rolls counterclockwise "],
-  ["轻微晃动", "Shake Slightly", "镜头产生轻微手持晃动", "The camera shakes slightly "],
-  ["强烈晃动", "Shake Strongly", "镜头产生明显剧烈晃动", "The camera shakes strongly "],
 ];
 
 const controllers = new WeakMap();
@@ -299,7 +276,7 @@ function commands(node, mode) {
     { category: "dialogue", label: "cutoff", detail: "对白被镜头或剪辑截断", raw: "<cutoff>" },
     ...[["fully_preserved","定义的视觉引用角色被完整保留"],["partially_preserved","仍使用引用内容，但部分特征被改变"],["attribute_transfer","把引用特征迁移到另一个可识别主体"],["weak_reference","仅保留宽泛风格、类别、构图或氛围"],["fully_copy","完整复制源音频信号"],["partially_copy","只复制部分时间或音频层"],["reference","只参考音色、节奏、内容或声音质感"]].map(([raw, detail]) => ({ category: "retention", label: raw, detail, raw })),
     ...[["reference generation","参考生成"],["keyframe completion","关键帧补全"],["video editing","直接编辑已有视频"],["video continuation","从已有视频继续生成"],["audio reuse","直接复用同一音频信号"],["audio reference","只参考音频特征而不复制信号"]].map(([raw, detail]) => ({ category: "task", label: raw, detail, raw: `[${raw}]` })),
-    ...CAMERA_COMMANDS.map(([chinese, english, detail, raw]) => ({
+    ...H3_CAMERA_COMMANDS.map(([chinese, english, detail, raw]) => ({
       category: "camera",
       label: `${chinese} · ${english}`,
       detail,
