@@ -107,7 +107,30 @@ function groupDescriptor(group, graph, graphIndex, groupIndex) {
   const graphId = String(rawGraphId);
   const groupId = rawGroupId == null || rawGroupId === "" ? "" : String(rawGroupId);
   const key = groupId ? `${graphId}:${groupId}` : `${graphId}:title:${title}:${groupIndex}`;
-  return { group, graph, graphId, groupId, groupIndex, key, title, label: title };
+  const color = String(group?.color || group?._color || "").trim();
+  return { group, graph, graphId, groupId, groupIndex, key, title, label: title, color };
+}
+
+function foregroundForColor(color) {
+  const value = String(color || "").trim();
+  let channels;
+  const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
+  if (hex) {
+    const expanded = hex.length <= 4
+      ? hex.slice(0, 3).split("").map((part) => part + part).join("")
+      : hex.slice(0, 6);
+    channels = [0, 2, 4].map((index) => Number.parseInt(expanded.slice(index, index + 2), 16));
+  } else {
+    const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (match) channels = match.slice(1, 4).map(Number);
+  }
+  if (!channels) return "";
+  const linear = channels.map((channel) => {
+    const value = channel / 255;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+  });
+  const luminance = linear[0] * 0.2126 + linear[1] * 0.7152 + linear[2] * 0.0722;
+  return luminance > 0.42 ? "#202124" : "#f4f4f5";
 }
 
 function workflowGroups() {
@@ -382,6 +405,14 @@ function buildRow(node, panel, groups, entry, index) {
   select.append(makeOption("", text.choose));
 
   const selected = entry ? matchingGroup(entry, groups) : null;
+  if (selected?.color) {
+    row.style.backgroundColor = selected.color;
+    const foreground = foregroundForColor(selected.color);
+    if (foreground) {
+      row.style.setProperty("--input-text", foreground);
+      row.style.setProperty("--p-primary-color", foreground);
+    }
+  }
   const selectedElsewhere = new Set(
     savedGroups(node)
       .filter((candidate) => candidate !== entry)
@@ -454,7 +485,7 @@ function buildRow(node, panel, groups, entry, index) {
 function signatureFor(node, groups) {
   return JSON.stringify({
     zh: isChinese(),
-    groups: groups.map((item) => [item.key, item.title, item.label]),
+    groups: groups.map((item) => [item.key, item.title, item.label, item.color]),
     selected: savedGroups(node).map((entry) => {
       const group = matchingGroup(entry, groups);
       const enabled = group ? groupIsEnabled(group.group) : entry.enabled;
