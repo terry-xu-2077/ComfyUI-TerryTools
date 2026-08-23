@@ -444,8 +444,8 @@ function drawCollapsedWirelessChannel(ctx, node) {
     || Number(globalThis.LiteGraph?.NODE_COLLAPSED_WIDTH)
     || Number(node?.size?.[0])
     || 112;
-  const height = 22;
-  const top = -2;
+  const height = 26;
+  const top = -6;
   const colors = wirelessChannelColors(node);
 
   ctx.save();
@@ -453,16 +453,16 @@ function drawCollapsedWirelessChannel(ctx, node) {
   const textWidth = Number(ctx.measureText?.(channel)?.width) || channel.length * 8;
   const width = Math.min(180, Math.max(46, textWidth + 18));
   const left = (collapsedWidth - width) * 0.5;
-  bottomRoundedRect(ctx, left, top, width, height, 10);
+  bottomRoundedRect(ctx, left, top, width, height, 7);
   ctx.fillStyle = colors.background;
   ctx.fill();
   ctx.lineWidth = 1;
   ctx.strokeStyle = colors.border;
-  strokeBottomRoundedRect(ctx, left, top, width, height, 10);
+  strokeBottomRoundedRect(ctx, left, top, width, height, 7);
   ctx.fillStyle = "rgba(245,245,245,.88)";
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.fillText(channel, collapsedWidth * 0.5, top + height * 0.5, width - 14);
+  ctx.fillText(channel, collapsedWidth * 0.5, (top + height) * 0.5, width - 14);
   ctx.restore();
 }
 
@@ -543,18 +543,18 @@ ${root}[data-collapsed]::before{
   content:${cssText(channel)};
   position:absolute;
   left:50%;
-  top:calc(100% - 2px);
+  top:calc(100% - 6px);
   transform:translateX(-50%);
   min-width:32px;
   max-width:168px;
-  height:22px;
-  padding:0 9px;
+  height:26px;
+  padding:5px 9px 0;
   border:1px solid ${colors.border};
   border-top:0;
   border-top-left-radius:0;
   border-top-right-radius:0;
-  border-bottom-right-radius:10px;
-  border-bottom-left-radius:10px;
+  border-bottom-right-radius:7px;
+  border-bottom-left-radius:7px;
   box-sizing:border-box;
   background:${colors.background};
   color:rgba(245,245,245,.88);
@@ -564,7 +564,7 @@ ${root}[data-collapsed]::before{
   overflow:hidden;
   text-overflow:ellipsis;
   pointer-events:none;
-  z-index:6;
+  z-index:-1;
 }
 `);
       }
@@ -765,19 +765,23 @@ function patchBusNode(node) {
     return originalOutputPos?.apply?.(this, arguments);
   };
 
+  const originalBackground = node.onDrawBackground;
+  node.onDrawBackground = function (ctx) {
+    const result = originalBackground?.apply?.(this, arguments);
+    if (isNodeCollapsed(this) && isWirelessBusNode(this)) {
+      try {
+        drawCollapsedWirelessChannel(ctx, this);
+      } catch (error) {
+        console.warn("[Terry Wire Bus] Failed to draw collapsed wireless channel", error);
+      }
+    }
+    return result;
+  };
+
   const originalForeground = node.onDrawForeground;
   node.onDrawForeground = function (ctx) {
     const result = originalForeground?.apply?.(this, arguments);
-    if (isNodeCollapsed(this)) {
-      if (isWirelessBusNode(this)) {
-        try {
-          drawCollapsedWirelessChannel(ctx, this);
-        } catch (error) {
-          console.warn("[Terry Wire Bus] Failed to draw collapsed wireless channel", error);
-        }
-      }
-      return result;
-    }
+    if (isNodeCollapsed(this)) return result;
     try {
       if (nodeType(this) === PACK_TYPE) drawCapsulePort(ctx, this, true, 0);
       else if (nodeType(this) === UNPACK_TYPE) drawCapsulePort(ctx, this, false, 0);
