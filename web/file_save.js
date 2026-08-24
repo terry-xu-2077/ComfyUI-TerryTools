@@ -5,6 +5,7 @@ import {
   scheduleFileSavePanel,
   updateFileSavePreview,
 } from "./file_save_panel_ui.js";
+import { optimizeFileSaveNativePreview } from "./file_save_native_preview_layout.js";
 
 const NODE_ID = "TerryFileSave";
 const PANEL_PROP = "__terryFileSavePanel";
@@ -34,6 +35,11 @@ function initNode(node) {
   scheduleFileSavePanel(node, PANEL_PROP);
 }
 
+function updatePreview(node, message) {
+  updateFileSavePreview(node, message);
+  optimizeFileSaveNativePreview(node, message);
+}
+
 app.registerExtension({
   name:"TerryTools.FileSave.RoundedPanel",
   beforeRegisterNodeDef(nodeType,nodeData) {
@@ -60,7 +66,7 @@ app.registerExtension({
     nodeType.prototype.onExecuted = function(message) {
       const result = executed?.apply(this, arguments);
       initNode(this);
-      updateFileSavePreview(this, message);
+      updatePreview(this, message);
       return result;
     };
   },
@@ -69,7 +75,7 @@ app.registerExtension({
   onNodeOutputsUpdated(outputs) {
     for (const [id, message] of Object.entries(outputs || {})) {
       const node = app.graph?.getNodeById?.(id) || app.rootGraph?.getNodeById?.(id);
-      if (isTarget(node)) updateFileSavePreview(node, message);
+      if (isTarget(node)) updatePreview(node, message);
     }
   },
 });
