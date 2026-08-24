@@ -78,7 +78,7 @@ function graphChildren(graph) {
   return children;
 }
 
-function allGraphs(root = app.graph) {
+function allGraphs(root = app.graph?.rootGraph || app.rootGraph || app.graph) {
   if (!root) return [];
   const result = [];
   const seen = new Set();
@@ -196,7 +196,56 @@ function entryForGroup(item, enabled) {
   };
 }
 
-function groupNodes(group) {
+function groupBounds(group) {
+  const bounds = group?._bounding || group?.boundingRect;
+  if (bounds && bounds.length >= 4) {
+    const [x, y, width, height] = bounds.map(Number);
+    if ([x, y, width, height].every(Number.isFinite)) return [x, y, width, height];
+  }
+
+  const pos = group?._pos || group?.pos;
+  const size = group?._size || group?.size;
+  if (pos?.length >= 2 && size?.length >= 2) {
+    const result = [Number(pos[0]), Number(pos[1]), Number(size[0]), Number(size[1])];
+    if (result.every(Number.isFinite)) return result;
+  }
+  return null;
+}
+
+function nodeBounds(node) {
+  const bounds = node?.boundingRect || node?._bounding;
+  if (bounds && bounds.length >= 4) {
+    const [x, y, width, height] = bounds.map(Number);
+    if ([x, y, width, height].every(Number.isFinite)) return [x, y, width, height];
+  }
+
+  const pos = node?.pos || node?._pos;
+  const size = node?.size || node?._size;
+  if (pos?.length >= 2 && size?.length >= 2) {
+    const result = [Number(pos[0]), Number(pos[1]), Number(size[0]), Number(size[1])];
+    if (result.every(Number.isFinite)) return result;
+  }
+  return null;
+}
+
+function nodeInsideGroup(node, bounds) {
+  const nodeRect = nodeBounds(node);
+  if (!nodeRect || !bounds) return false;
+  const [gx, gy, gw, gh] = bounds;
+  const [nx, ny, nw, nh] = nodeRect;
+  const cx = nx + nw / 2;
+  const cy = ny + nh / 2;
+  return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+}
+
+function groupNodes(group, graph) {
+  const bounds = groupBounds(group);
+  const graphNodes = Array.from(graph?._nodes || graph?.nodes || []);
+
+  if (bounds && graphNodes.length) {
+    return graphNodes.filter((node) => node && !isManager(node) && nodeInsideGroup(node, bounds));
+  }
+
   try {
     group?.recomputeInsideNodes?.();
   } catch (error) {
@@ -205,15 +254,15 @@ function groupNodes(group) {
 
   const children = group?._children;
   if (children && typeof children.values === "function") {
-    return [...children.values()].filter((node) => node && typeof node.mode === "number");
+    return [...children.values()].filter((node) => node && !isManager(node) && "mode" in node);
   }
   const nodes = group?.nodes ?? group?._nodes ?? [];
-  return Array.from(nodes).filter((node) => node && typeof node.mode === "number");
+  return Array.from(nodes).filter((node) => node && !isManager(node) && "mode" in node);
 }
 
-function groupIsEnabled(group) {
-  const nodes = groupNodes(group);
-  return nodes.length === 0 || nodes.some((node) => node.mode === MODE_ALWAYS);
+function groupIsEnabled(group, graph) {
+  const nodes = groupNodes(group, graph);
+  return nodes.length === 0 || nodes.some((node) => node.mode !== MODE_BYPASS);
 }
 
 function changeNodesMode(nodes, mode, visited = new Set()) {
@@ -236,7 +285,7 @@ function markChanged(node) {
 function toggleGroup(node, entry, enabled) {
   const item = matchingGroup(entry, workflowGroups());
   if (!item) return;
-  changeNodesMode(groupNodes(item.group), enabled ? MODE_ALWAYS : MODE_BYPASS);
+  changeNodesMode(groupNodes(item.group, item.graph), enabled ? MODE_ALWAYS : MODE_BYPASS);
   Object.assign(entry, entryForGroup(item, enabled));
   item.graph?.change?.();
   item.graph?.setDirtyCanvas?.(true, true);
@@ -449,7 +498,7 @@ function buildRow(node, panel, groups, entry, index) {
     } else {
       const chosen = workflowGroups().find((item) => item.key === select.value);
       if (!chosen) return;
-      const next = entryForGroup(chosen, groupIsEnabled(chosen.group));
+      const next = entryForGroup(chosen, groupIsEnabled(chosen.group, chosen.graph));
       if (entry) values[index] = next;
       else values.push(next);
     }
@@ -459,7 +508,7 @@ function buildRow(node, panel, groups, entry, index) {
   row.append(select);
 
   if (entry && selected) {
-    const enabled = groupIsEnabled(selected.group);
+    const enabled = groupIsEnabled(selected.group, selected.graph);
     Object.assign(entry, entryForGroup(selected, enabled));
   }
 
@@ -501,7 +550,7 @@ function signatureFor(node, groups) {
     groups: groups.map((item) => [item.key, item.title, item.label, item.color]),
     selected: savedGroups(node).map((entry) => {
       const group = matchingGroup(entry, groups);
-      const enabled = group ? groupIsEnabled(group.group) : entry.enabled;
+      const enabled = group ? groupIsEnabled(group.group, group.graph) : entry.enabled;
       return [entry.key, entry.title, enabled, Boolean(group)];
     }),
   });
