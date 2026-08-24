@@ -53,6 +53,11 @@ function getGroupNodes(group) {
   return Array.from(group?._children || []).filter((node) => node && !isManager(node));
 }
 
+function getGraphDependentNodeKey(node) {
+  const graph = node?.graph || app.graph;
+  return `${graph?.id ?? graph?._id ?? "root"}:${node?.id}`;
+}
+
 function groupsExactlyLikeRgthree() {
   const graph = app.canvas?.getCurrentGraph?.() ?? app.graph;
   if (!graph) return [];
@@ -68,12 +73,85 @@ function groupsExactlyLikeRgthree() {
   return groups;
 }
 
-function findGroup(entry) {
+function getBoundingsForAllNodes() {
+  const boundings = Object.create(null);
+  const rootNodes = app.graph?._nodes || app.graph?.nodes || [];
+
+  reduceNodesDepthFirst(rootNodes, (node) => {
+    let bounds = null;
+    try {
+      bounds = node.getBounding?.();
+    } catch {}
+
+    if (bounds && Number(bounds[0]) === 0 && Number(bounds[1]) === 0 && Number(bounds[2]) === 0 && Number(bounds[3]) === 0) {
+      try {
+        const ctx = node.graph?.primaryCanvas?.canvas?.getContext?.("2d");
+        if (ctx) {
+          node.updateArea?.(ctx);
+          bounds = node.getBounding?.();
+        }
+      } catch {}
+    }
+
+    if (!bounds?.length || bounds.length < 4) return;
+    boundings[getGraphDependentNodeKey(node)] = [
+      Number(bounds[0]),
+      Number(bounds[1]),
+      Number(bounds[2]),
+      Number(bounds[3]),
+    ];
+  });
+
+  return boundings;
+}
+
+function recomputeInsideNodesForGroup(group, cachedBoundings) {
+  if (!group?.graph) return;
+  const nodes = group.graph.nodes || group.graph._nodes || [];
+  const groupBounds = group._bounding;
+  if (!groupBounds?.length || groupBounds.length < 4) return;
+
+  group._children?.clear?.();
+  if (Array.isArray(group.nodes)) group.nodes.length = 0;
+
+  for (const node of nodes) {
+    if (!node || isManager(node)) continue;
+    const nodeBounding = cachedBoundings[getGraphDependentNodeKey(node)];
+    if (!nodeBounding) continue;
+
+    const nodeCenter = [
+      nodeBounding[0] + nodeBounding[2] * 0.5,
+      nodeBounding[1] + nodeBounding[3] * 0.5,
+    ];
+
+    if (
+      nodeCenter[0] >= groupBounds[0] &&
+      nodeCenter[0] < groupBounds[0] + groupBounds[2] &&
+      nodeCenter[1] >= groupBounds[1] &&
+      nodeCenter[1] < groupBounds[1] + groupBounds[3]
+    ) {
+      group._children?.add?.(node);
+      if (Array.isArray(group.nodes)) group.nodes.push(node);
+    }
+  }
+}
+
+function warmGroupsExactlyLikeRgthree() {
+  const groups = groupsExactlyLikeRgthree();
+  const cachedBoundings = getBoundingsForAllNodes();
+
+  for (const group of groups) {
+    recomputeInsideNodesForGroup(group, cachedBoundings);
+    group.rgthree_hasAnyActiveNode = getGroupNodes(group).some((node) => node.mode === MODE_ALWAYS);
+  }
+  return groups;
+}
+
+function findGroup(entry, groups = warmGroupsExactlyLikeRgthree()) {
   const targetGraphId = String(entry?.graphId ?? "");
   const targetGroupId = String(entry?.groupId ?? "");
   const targetTitle = String(entry?.title ?? "");
 
-  const groups = groupsExactlyLikeRgthree();
   let matches = groups.filter((group) => {
     const graphId = String(group?.graph?.id ?? group?.graph?._id ?? "");
     if (targetGraphId && graphId !== targetGraphId) return false;
@@ -88,22 +166,7 @@ function findGroup(entry) {
   if (!matches.length) {
     matches = groups.filter((group) => String(group?.title || "") === targetTitle);
   }
-  return matches.length === 1 ? matches[0] : matches[0] || null;
-}
-
-function recomputeAndRead(group, fallback = true) {
-  if (!group) return { nodes: [], enabled: Boolean(fallback) };
-  try {
-    group.recomputeInsideNodes?.();
-  } catch (error) {
-    console.warn("[TerryTools][GroupManagerFix] recomputeInsideNodes failed", error);
-  }
-  const nodes = getGroupNodes(group);
-  if (!nodes.length) return { nodes, enabled: Boolean(fallback) };
-  return {
-    nodes,
-    enabled: nodes.some((node) => node.mode === MODE_ALWAYS),
-  };
+  return matches[0] || null;
 }
 
 function rootManagers() {
@@ -127,17 +190,18 @@ function updateButton(button, enabled, title = "") {
   button.textContent = enabled ? (zh ? "开启" : "yes") : (zh ? "关闭" : "no");
 }
 
-function syncManager(manager) {
+function syncManager(manager, groups) {
   const entries = manager?.properties?.[STATE_PROPERTY];
   if (!Array.isArray(entries)) return;
   const panel = manager.__terryGroupManager?.panel;
   const rows = panel ? Array.from(panel.querySelectorAll(".terry-group-manager__row")) : [];
 
   entries.forEach((entry, index) => {
-    const group = findGroup(entry);
+    const group = findGroup(entry, groups);
     if (!group) return;
-    const { nodes, enabled } = recomputeAndRead(group, entry.enabled);
+    const nodes = getGroupNodes(group);
     if (!nodes.length) return;
+    const enabled = nodes.some((node) => node.mode === MODE_ALWAYS);
     entry.enabled = enabled;
     group.rgthree_hasAnyActiveNode = enabled;
     updateButton(rows[index]?.querySelector?.(".terry-group-manager__toggle"), enabled, entry.title);
@@ -145,7 +209,8 @@ function syncManager(manager) {
 }
 
 function syncAllManagers() {
-  for (const manager of rootManagers()) syncManager(manager);
+  const groups = warmGroupsExactlyLikeRgthree();
+  for (const manager of rootManagers()) syncManager(manager, groups);
 }
 
 function handleToggle(event) {
@@ -162,15 +227,15 @@ function handleToggle(event) {
   const entry = Array.isArray(entries) && index >= 0 ? entries[index] : null;
   if (!entry) return;
 
-  const group = findGroup(entry);
+  const groups = warmGroupsExactlyLikeRgthree();
+  const group = findGroup(entry, groups);
   if (!group) return;
 
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
 
-  // This intentionally mirrors rgthree FastGroupsToggleRowWidget.doModeChange():
-  // native group recompute -> group._children -> recursive mode change.
+  // Exact rgthree click path, after its service-style precompute above.
   group.recomputeInsideNodes?.();
   const nodes = getGroupNodes(group);
   const hasAnyActiveNodes = nodes.some((node) => node.mode === MODE_ALWAYS);
