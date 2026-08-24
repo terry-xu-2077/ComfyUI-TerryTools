@@ -13,6 +13,15 @@ function isManager(node) {
   return nodeType(node) === NODE_ID;
 }
 
+function isChinese() {
+  try {
+    const locale = app?.ui?.settings?.getSettingValue?.("Comfy.Locale") || navigator.language || "en";
+    return String(locale).toLowerCase().replaceAll("_", "-").startsWith("zh");
+  } catch {
+    return false;
+  }
+}
+
 function values(collection) {
   if (!collection) return [];
   if (Array.isArray(collection)) return collection;
@@ -144,14 +153,8 @@ function handleToggle(event) {
   manager.setDirtyCanvas?.(true, true);
 
   button.setAttribute("aria-checked", String(enable));
-  button.textContent = enable ? (document.documentElement.lang?.startsWith("zh") ? "开启" : "yes") : (document.documentElement.lang?.startsWith("zh") ? "关闭" : "no");
-
-  console.log("[TerryTools][GroupManagerFix] toggle", {
-    group: entry.title,
-    graphId: entry.graphId,
-    enabled: enable,
-    nodes: nodes.map((node) => ({ id: node?.id, type: nodeType(node), mode: node?.mode })),
-  });
+  const zh = isChinese();
+  button.textContent = enable ? (zh ? "开启" : "yes") : (zh ? "关闭" : "no");
 }
 
 document.addEventListener("click", handleToggle, true);
