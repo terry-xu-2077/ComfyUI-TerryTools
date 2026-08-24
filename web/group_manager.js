@@ -237,9 +237,10 @@ function groupNodes(group, graph) {
   return Array.from(children).filter(isModeNode);
 }
 
-function groupIsEnabled(group, graph) {
+function groupIsEnabled(group, graph, fallback = true) {
   const nodes = groupNodes(group, graph);
-  return nodes.length === 0 || nodes.some((node) => node.mode !== MODE_BYPASS);
+  if (nodes.length === 0) return Boolean(fallback);
+  return nodes.some((node) => node.mode !== MODE_BYPASS);
 }
 
 function changeNodesMode(nodes, mode, visited = new Set()) {
@@ -256,16 +257,6 @@ function changeNodesMode(nodes, mode, visited = new Set()) {
   }
 }
 
-function nodeDebug(node) {
-  return {
-    id: node?.id,
-    type: nodeType(node),
-    title: node?.title,
-    mode: node?.mode,
-    graphId: node?.graph?.id,
-  };
-}
-
 function markChanged(node) {
   node.graph?.change?.();
   node.graph?.setDirtyCanvas?.(true, true);
@@ -274,42 +265,13 @@ function markChanged(node) {
 
 function toggleGroup(node, entry, enabled) {
   const item = matchingGroup(entry, workflowGroups());
-  if (!item) {
-    console.warn("[TerryTools][GroupManager] selected group not found", entry);
-    return;
-  }
-  const nodes = groupNodes(item.group, item.graph);
-  const before = nodes.map(nodeDebug);
-  const targetMode = enabled ? MODE_ALWAYS : MODE_BYPASS;
-  changeNodesMode(nodes, targetMode);
-  const after = nodes.map(nodeDebug);
-
-  console.groupCollapsed(`[TerryTools][GroupManager] ${enabled ? "enable" : "bypass"} ${item.title}`);
-  console.log("graph", { id: item.graphId, graph: item.graph });
-  console.log("group", { id: item.groupId, key: item.key, title: item.title, bounds: rectOf(item.group) });
-  console.log("targetMode", targetMode, "nodeCount", nodes.length);
-  console.table(before);
-  console.log("after");
-  console.table(after);
-  console.groupEnd();
-
+  if (!item) return;
+  changeNodesMode(groupNodes(item.group, item.graph), enabled ? MODE_ALWAYS : MODE_BYPASS);
   Object.assign(entry, entryForGroup(item, enabled));
   item.graph?.change?.();
   item.graph?.setDirtyCanvas?.(true, true);
   markChanged(node);
   renderManager(node, true);
-
-  queueMicrotask(() => {
-    const currentNodes = groupNodes(item.group, item.graph);
-    const currentEnabled = groupIsEnabled(item.group, item.graph);
-    console.log("[TerryTools][GroupManager] post-toggle", {
-      group: item.title,
-      graphId: item.graphId,
-      expectedEnabled: enabled,
-      actualEnabled: currentEnabled,
-      nodes: currentNodes.map(nodeDebug),
-    });
-  });
 }
 
 function navigateToGroup(entry) {
@@ -420,7 +382,7 @@ function buildRow(node, panel, groups, entry, index) {
     } else {
       const chosen = workflowGroups().find((item) => item.key === select.value);
       if (!chosen) return;
-      const next = entryForGroup(chosen, groupIsEnabled(chosen.group, chosen.graph));
+      const next = entryForGroup(chosen, groupIsEnabled(chosen.group, chosen.graph, true));
       if (entry) values[index] = next;
       else values.push(next);
     }
@@ -430,7 +392,7 @@ function buildRow(node, panel, groups, entry, index) {
   row.append(select);
 
   if (entry && selected) {
-    Object.assign(entry, entryForGroup(selected, groupIsEnabled(selected.group, selected.graph)));
+    Object.assign(entry, entryForGroup(selected, groupIsEnabled(selected.group, selected.graph, entry.enabled)));
   }
 
   const enabled = Boolean(entry?.enabled);
@@ -468,7 +430,7 @@ function signatureFor(node, groups) {
     groups: groups.map((item) => [item.key, item.title, item.label, item.color]),
     selected: savedGroups(node).map((entry) => {
       const item = matchingGroup(entry, groups);
-      const enabled = item ? groupIsEnabled(item.group, item.graph) : entry.enabled;
+      const enabled = item ? groupIsEnabled(item.group, item.graph, entry.enabled) : entry.enabled;
       return [entry.key, entry.title, enabled, Boolean(item)];
     }),
   });
