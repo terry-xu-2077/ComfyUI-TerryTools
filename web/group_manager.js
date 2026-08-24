@@ -24,58 +24,60 @@ function isChinese() {
 }
 
 function labels() {
-  if (isChinese()) {
-    return {
-      title: "Terry 分组开关",
-      description: "手动选择工作流分组，独立启用或旁路每个分组内的节点。",
-      category: "TerryTools/工作流管理",
-      choose: "选择分组…",
-      missing: "分组不存在",
-      enabled: "已启用",
-      bypassed: "已旁路",
-      on: "开启",
-      off: "关闭",
-      navigate: "跳转到分组",
-    };
-  }
-  return {
-    title: "Terry Group Manager",
-    description: "Choose workflow groups manually and enable or bypass their nodes independently.",
-    category: "TerryTools/Workflow Management",
-    choose: "Select a group…",
-    missing: "Group unavailable",
-    enabled: "Enabled",
-    bypassed: "Bypassed",
-    on: "yes",
-    off: "no",
-    navigate: "Go to group",
-  };
+  return isChinese()
+    ? {
+        title: "Terry 分组开关",
+        description: "手动选择工作流分组，独立启用或旁路每个分组内的节点。",
+        category: "TerryTools/工作流管理",
+        choose: "选择分组…",
+        missing: "分组不存在",
+        enabled: "已启用",
+        bypassed: "已旁路",
+        on: "开启",
+        off: "关闭",
+        navigate: "跳转到分组",
+      }
+    : {
+        title: "Terry Group Manager",
+        description: "Choose workflow groups manually and enable or bypass their nodes independently.",
+        category: "TerryTools/Workflow Management",
+        choose: "Select a group…",
+        missing: "Group unavailable",
+        enabled: "Enabled",
+        bypassed: "Bypassed",
+        on: "yes",
+        off: "no",
+        navigate: "Go to group",
+      };
 }
 
 function nodeType(node) {
-  return String(
-    node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || ""
-  );
+  return String(node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || "");
 }
 
 function isManager(node) {
   return nodeType(node) === NODE_ID;
 }
 
+function collectionValues(collection) {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return collection;
+  if (typeof collection.values === "function") return [...collection.values()];
+  return Object.values(collection);
+}
+
 function graphChildren(graph) {
-  const children = [];
+  const result = [];
   for (const node of graph?._nodes || graph?.nodes || []) {
-    if (node?.subgraph) children.push(node.subgraph);
+    if (node?.subgraph) result.push(node.subgraph);
   }
   for (const collection of [graph?.subgraphs, graph?._subgraphs]) {
-    if (!collection) continue;
-    const values = typeof collection.values === "function" ? collection.values() : Object.values(collection);
-    for (const child of values) {
+    for (const child of collectionValues(collection)) {
       const subgraph = child?.subgraph || child;
-      if (subgraph) children.push(subgraph);
+      if (subgraph) result.push(subgraph);
     }
   }
-  return children;
+  return result;
 }
 
 function allGraphs(root = app.graph?.rootGraph || app.rootGraph || app.graph) {
@@ -94,18 +96,14 @@ function allGraphs(root = app.graph?.rootGraph || app.rootGraph || app.graph) {
 }
 
 function graphGroups(graph) {
-  const groups = graph?._groups ?? graph?.groups ?? [];
-  if (Array.isArray(groups)) return groups;
-  if (typeof groups.values === "function") return [...groups.values()];
-  return Object.values(groups);
+  return collectionValues(graph?._groups ?? graph?.groups ?? []);
 }
 
 function groupDescriptor(group, graph, graphIndex, groupIndex) {
   const title = String(group?.title || "").trim();
   if (!title) return null;
-  const rawGraphId = graph?.id ?? graph?._id ?? graphIndex;
+  const graphId = String(graph?.id ?? graph?._id ?? graphIndex);
   const rawGroupId = group?.id ?? group?._id;
-  const graphId = String(rawGraphId);
   const groupId = rawGroupId == null || rawGroupId === "" ? "" : String(rawGroupId);
   const key = groupId ? `${graphId}:${groupId}` : `${graphId}:title:${title}:${groupIndex}`;
   const color = String(group?.color || group?._color || "").trim();
@@ -116,7 +114,6 @@ function visibleGroupNameColor(color) {
   const value = String(color || "").trim();
   if (!value) return "";
   if (value.toLowerCase() === "black") return "#e5e7eb";
-
   let channels;
   const hex = value.match(/^#([\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i)?.[1];
   if (hex) {
@@ -128,17 +125,12 @@ function visibleGroupNameColor(color) {
     const match = value.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
     if (match) channels = match.slice(1, 4).map(Number);
   }
-  if (!channels) {
-    return `color-mix(in srgb, ${value} ${(1 - GROUP_NAME_WHITE_MIX) * 100}%, #e5e7eb)`;
-  }
-
+  if (!channels) return `color-mix(in srgb, ${value} ${(1 - GROUP_NAME_WHITE_MIX) * 100}%, #e5e7eb)`;
   const brightness = (channels[0] * 299 + channels[1] * 587 + channels[2] * 114) / 1000;
   const colorSpread = Math.max(...channels) - Math.min(...channels);
   if (brightness < 64 || (colorSpread <= 32 && brightness < 160)) return "#e5e7eb";
   const light = [229, 231, 235];
-  const mixed = channels.map((channel, index) => Math.round(
-    channel * (1 - GROUP_NAME_WHITE_MIX) + light[index] * GROUP_NAME_WHITE_MIX
-  ));
+  const mixed = channels.map((channel, index) => Math.round(channel * (1 - GROUP_NAME_WHITE_MIX) + light[index] * GROUP_NAME_WHITE_MIX));
   return `rgb(${mixed.join(", ")})`;
 }
 
@@ -150,7 +142,6 @@ function workflowGroups() {
       if (item) result.push(item);
     }
   }
-
   const totals = new Map();
   const counts = new Map();
   for (const item of result) totals.set(item.title, (totals.get(item.title) || 0) + 1);
@@ -196,15 +187,14 @@ function entryForGroup(item, enabled) {
   };
 }
 
-function groupBounds(group) {
-  const bounds = group?._bounding || group?.boundingRect;
+function rectOf(item) {
+  const bounds = item?._bounding || item?.boundingRect;
   if (bounds && bounds.length >= 4) {
-    const [x, y, width, height] = bounds.map(Number);
-    if ([x, y, width, height].every(Number.isFinite)) return [x, y, width, height];
+    const result = [Number(bounds[0]), Number(bounds[1]), Number(bounds[2]), Number(bounds[3])];
+    if (result.every(Number.isFinite)) return result;
   }
-
-  const pos = group?._pos || group?.pos;
-  const size = group?._size || group?.size;
+  const pos = item?._pos || item?.pos;
+  const size = item?._size || item?.size;
   if (pos?.length >= 2 && size?.length >= 2) {
     const result = [Number(pos[0]), Number(pos[1]), Number(size[0]), Number(size[1])];
     if (result.every(Number.isFinite)) return result;
@@ -212,52 +202,39 @@ function groupBounds(group) {
   return null;
 }
 
-function nodeBounds(node) {
-  const bounds = node?.boundingRect || node?._bounding;
-  if (bounds && bounds.length >= 4) {
-    const [x, y, width, height] = bounds.map(Number);
-    if ([x, y, width, height].every(Number.isFinite)) return [x, y, width, height];
-  }
-
-  const pos = node?.pos || node?._pos;
-  const size = node?.size || node?._size;
-  if (pos?.length >= 2 && size?.length >= 2) {
-    const result = [Number(pos[0]), Number(pos[1]), Number(size[0]), Number(size[1])];
-    if (result.every(Number.isFinite)) return result;
-  }
-  return null;
-}
-
-function nodeInsideGroup(node, bounds) {
-  const nodeRect = nodeBounds(node);
-  if (!nodeRect || !bounds) return false;
-  const [gx, gy, gw, gh] = bounds;
+function nodeInsideGroup(node, groupRect) {
+  const nodeRect = rectOf(node);
+  if (!nodeRect || !groupRect) return false;
+  const [gx, gy, gw, gh] = groupRect;
   const [nx, ny, nw, nh] = nodeRect;
   const cx = nx + nw / 2;
   const cy = ny + nh / 2;
   return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
 }
 
+function isModeNode(node) {
+  return Boolean(node)
+    && !isManager(node)
+    && typeof node.mode === "number"
+    && Number.isFinite(node.mode);
+}
+
 function groupNodes(group, graph) {
-  const bounds = groupBounds(group);
+  const groupRect = rectOf(group);
   const graphNodes = Array.from(graph?._nodes || graph?.nodes || []);
-
-  if (bounds && graphNodes.length) {
-    return graphNodes.filter((node) => node && !isManager(node) && nodeInsideGroup(node, bounds));
+  if (groupRect && graphNodes.length) {
+    return graphNodes.filter((node) => isModeNode(node) && nodeInsideGroup(node, groupRect));
   }
-
   try {
+    if (!group?.graph && graph) group.graph = graph;
     group?.recomputeInsideNodes?.();
   } catch (error) {
-    console.warn("[TerryTools] Unable to refresh nodes inside group:", error);
+    console.warn("[TerryTools][GroupManager] recomputeInsideNodes failed", error);
   }
-
-  const children = group?._children;
-  if (children && typeof children.values === "function") {
-    return [...children.values()].filter((node) => node && !isManager(node) && "mode" in node);
-  }
-  const nodes = group?.nodes ?? group?._nodes ?? [];
-  return Array.from(nodes).filter((node) => node && !isManager(node) && "mode" in node);
+  const children = group?._children && typeof group._children.values === "function"
+    ? [...group._children.values()]
+    : group?.nodes ?? group?._nodes ?? [];
+  return Array.from(children).filter(isModeNode);
 }
 
 function groupIsEnabled(group, graph) {
@@ -267,13 +244,26 @@ function groupIsEnabled(group, graph) {
 
 function changeNodesMode(nodes, mode, visited = new Set()) {
   for (const node of nodes) {
-    if (!node || visited.has(node) || isManager(node)) continue;
+    if (!isModeNode(node) || visited.has(node)) continue;
     visited.add(node);
     node.mode = mode;
+    node.graph?.change?.();
     node.setDirtyCanvas?.(true, true);
-    const subgraph = node.subgraph;
-    if (subgraph) changeNodesMode(subgraph._nodes || subgraph.nodes || [], mode, visited);
+    if (node.subgraph) {
+      const nested = Array.from(node.subgraph?._nodes || node.subgraph?.nodes || []).filter(isModeNode);
+      changeNodesMode(nested, mode, visited);
+    }
   }
+}
+
+function nodeDebug(node) {
+  return {
+    id: node?.id,
+    type: nodeType(node),
+    title: node?.title,
+    mode: node?.mode,
+    graphId: node?.graph?.id,
+  };
 }
 
 function markChanged(node) {
@@ -284,29 +274,55 @@ function markChanged(node) {
 
 function toggleGroup(node, entry, enabled) {
   const item = matchingGroup(entry, workflowGroups());
-  if (!item) return;
-  changeNodesMode(groupNodes(item.group, item.graph), enabled ? MODE_ALWAYS : MODE_BYPASS);
+  if (!item) {
+    console.warn("[TerryTools][GroupManager] selected group not found", entry);
+    return;
+  }
+  const nodes = groupNodes(item.group, item.graph);
+  const before = nodes.map(nodeDebug);
+  const targetMode = enabled ? MODE_ALWAYS : MODE_BYPASS;
+  changeNodesMode(nodes, targetMode);
+  const after = nodes.map(nodeDebug);
+
+  console.groupCollapsed(`[TerryTools][GroupManager] ${enabled ? "enable" : "bypass"} ${item.title}`);
+  console.log("graph", { id: item.graphId, graph: item.graph });
+  console.log("group", { id: item.groupId, key: item.key, title: item.title, bounds: rectOf(item.group) });
+  console.log("targetMode", targetMode, "nodeCount", nodes.length);
+  console.table(before);
+  console.log("after");
+  console.table(after);
+  console.groupEnd();
+
   Object.assign(entry, entryForGroup(item, enabled));
   item.graph?.change?.();
   item.graph?.setDirtyCanvas?.(true, true);
   markChanged(node);
-  refreshAllManagers(true);
+  renderManager(node, true);
+
+  queueMicrotask(() => {
+    const currentNodes = groupNodes(item.group, item.graph);
+    const currentEnabled = groupIsEnabled(item.group, item.graph);
+    console.log("[TerryTools][GroupManager] post-toggle", {
+      group: item.title,
+      graphId: item.graphId,
+      expectedEnabled: enabled,
+      actualEnabled: currentEnabled,
+      nodes: currentNodes.map(nodeDebug),
+    });
+  });
 }
 
 function navigateToGroup(entry) {
   const item = matchingGroup(entry, workflowGroups());
   const canvas = app.canvas;
   if (!item || !canvas) return;
-
   const currentGraph = canvas.getCurrentGraph?.() || canvas.graph;
   if (currentGraph && item.graph && currentGraph !== item.graph) {
     if (item.graph === app.graph) canvas.closeSubgraph?.();
     else canvas.openSubgraph?.(item.graph);
     if (canvas.getCurrentGraph?.() !== item.graph) canvas.setGraph?.(item.graph);
   }
-
   canvas.centerOnNode?.(item.group);
-
   const groupSize = item.group?._size || item.group?.size;
   const width = Number(groupSize?.[0]);
   const height = Number(groupSize?.[1]);
@@ -317,7 +333,6 @@ function navigateToGroup(entry) {
     const zoom = Math.min(currentZoom, canvasWidth / width - 0.02, canvasHeight / height - 0.02);
     if (zoom > 0) canvas.setZoom?.(zoom, [canvasWidth / 2, canvasHeight / 2]);
   }
-
   canvas.setDirty?.(true, true);
 }
 
@@ -326,120 +341,23 @@ function installStyle() {
   const style = document.createElement("style");
   style.id = STYLE_ID;
   style.textContent = `
-    .terry-group-manager {
-      box-sizing: border-box;
-      display: flex;
-      flex-direction: column;
-      gap: ${ROW_GAP}px;
-      min-height: ${ROW_HEIGHT + PANEL_PADDING * 2}px;
-      padding: ${PANEL_PADDING}px;
-      width: 100%;
-    }
-    .terry-group-manager__row {
-      align-items: center;
-      background: var(--comfy-input-bg, #222);
-      border: 1px solid var(--border-color, #595959);
-      border-radius: 999px;
-      box-sizing: border-box;
-      display: flex;
-      flex: 0 0 ${ROW_HEIGHT}px;
-      height: ${ROW_HEIGHT}px;
-      max-height: ${ROW_HEIGHT}px;
-      min-height: ${ROW_HEIGHT}px;
-      min-width: 0;
-      overflow: hidden;
-    }
-    .terry-group-manager__select {
-      appearance: none;
-      -webkit-appearance: none;
-      background: transparent;
-      background-image:
-        linear-gradient(45deg, transparent 50%, #ddd 50%),
-        linear-gradient(135deg, #ddd 50%, transparent 50%);
-      background-position: calc(100% - 12px) 50%, calc(100% - 7px) 50%;
-      background-repeat: no-repeat;
-      background-size: 5px 5px;
-      border: 0;
-      border-radius: 0;
-      box-sizing: border-box;
-      color: var(--input-text, #ddd);
-      color-scheme: dark;
-      cursor: pointer;
-      flex: 1 1 auto;
-      font: 12px Inter, system-ui, sans-serif;
-      height: 100%;
-      min-width: 0;
-      padding: 0 22px 0 12px;
-      width: 0;
-    }
-    .terry-group-manager__select option {
-      background: #25272b !important;
-      color: #e8e8e8;
-    }
-    .terry-group-manager__select option:disabled {
-      color: #92959d !important;
-    }
-    .terry-group-manager__select:focus-visible,
-    .terry-group-manager__toggle:focus-visible,
-    .terry-group-manager__navigate:focus-visible {
-      outline: 1px solid var(--p-primary-color, #74a4cf);
-      outline-offset: -2px;
-    }
-    .terry-group-manager__toggle {
-      align-items: center;
-      background: transparent;
-      border: 0;
-      color: var(--input-text, #ddd);
-      cursor: pointer;
-      display: flex;
-      flex: 0 0 auto;
-      font: 11px Inter, system-ui, sans-serif;
-      gap: 7px;
-      height: 100%;
-      justify-content: flex-end;
-      min-width: 64px;
-      padding: 0 8px;
-    }
-    .terry-group-manager__toggle::after {
-      background: #555;
-      border-radius: 50%;
-      content: "";
-      flex: 0 0 15px;
-      height: 15px;
-      transition: background 120ms ease;
-      width: 15px;
-    }
-    .terry-group-manager__toggle[aria-checked="true"]::after {
-      background: var(--p-primary-color, #71a2c8);
-    }
-    .terry-group-manager__navigate {
-      align-items: center;
-      background: transparent;
-      border: 0;
-      border-left: 1px solid var(--border-color, #595959);
-      color: var(--p-primary-color, #83a3bb);
-      cursor: pointer;
-      display: flex;
-      flex: 0 0 37px;
-      font: 19px/1 system-ui, sans-serif;
-      height: 100%;
-      justify-content: center;
-      padding: 0;
-      width: 37px;
-    }
-    .terry-group-manager__toggle:disabled,
-    .terry-group-manager__navigate:disabled {
-      cursor: not-allowed;
-      opacity: .38;
-    }
+    .terry-group-manager { box-sizing:border-box; display:flex; flex-direction:column; gap:${ROW_GAP}px; min-height:${ROW_HEIGHT + PANEL_PADDING * 2}px; padding:${PANEL_PADDING}px; width:100%; }
+    .terry-group-manager__row { align-items:center; background:var(--comfy-input-bg,#222); border:1px solid var(--border-color,#595959); border-radius:999px; box-sizing:border-box; display:flex; flex:0 0 ${ROW_HEIGHT}px; height:${ROW_HEIGHT}px; max-height:${ROW_HEIGHT}px; min-height:${ROW_HEIGHT}px; min-width:0; overflow:hidden; }
+    .terry-group-manager__select { appearance:none; -webkit-appearance:none; background:transparent; background-image:linear-gradient(45deg,transparent 50%,#ddd 50%),linear-gradient(135deg,#ddd 50%,transparent 50%); background-position:calc(100% - 12px) 50%,calc(100% - 7px) 50%; background-repeat:no-repeat; background-size:5px 5px; border:0; border-radius:0; box-sizing:border-box; color:var(--input-text,#ddd); color-scheme:dark; cursor:pointer; flex:1 1 auto; font:12px Inter,system-ui,sans-serif; height:100%; min-width:0; padding:0 22px 0 12px; width:0; }
+    .terry-group-manager__select option { background:#25272b !important; color:#e8e8e8; }
+    .terry-group-manager__select option:disabled { color:#92959d !important; }
+    .terry-group-manager__select:focus-visible,.terry-group-manager__toggle:focus-visible,.terry-group-manager__navigate:focus-visible { outline:1px solid var(--p-primary-color,#74a4cf); outline-offset:-2px; }
+    .terry-group-manager__toggle { align-items:center; background:transparent; border:0; color:var(--input-text,#ddd); cursor:pointer; display:flex; flex:0 0 auto; font:11px Inter,system-ui,sans-serif; gap:7px; height:100%; justify-content:flex-end; min-width:64px; padding:0 8px; }
+    .terry-group-manager__toggle::after { background:#555; border-radius:50%; content:""; flex:0 0 15px; height:15px; transition:background 120ms ease; width:15px; }
+    .terry-group-manager__toggle[aria-checked="true"]::after { background:var(--p-primary-color,#71a2c8); }
+    .terry-group-manager__navigate { align-items:center; background:transparent; border:0; border-left:1px solid var(--border-color,#595959); color:var(--p-primary-color,#83a3bb); cursor:pointer; display:flex; flex:0 0 37px; font:19px/1 system-ui,sans-serif; height:100%; justify-content:center; padding:0; width:37px; }
+    .terry-group-manager__toggle:disabled,.terry-group-manager__navigate:disabled { cursor:not-allowed; opacity:.38; }
   `;
   document.head.append(style);
 }
 
 function panelHeight(node) {
-  return (savedGroups(node).length + 1) * ROW_HEIGHT
-    + savedGroups(node).length * ROW_GAP
-    + PANEL_PADDING * 2;
+  return (savedGroups(node).length + 1) * ROW_HEIGHT + savedGroups(node).length * ROW_GAP + PANEL_PADDING * 2;
 }
 
 function resizeManager(node) {
@@ -468,6 +386,11 @@ function buildRow(node, panel, groups, entry, index) {
 
   const select = document.createElement("select");
   select.className = "terry-group-manager__select";
+  const nodeId = String(node?.id ?? "manager").replace(/[^\w-]/g, "_");
+  const fieldId = `terry-group-manager-${nodeId}-${index}`;
+  select.id = fieldId;
+  select.name = fieldId;
+  select.autocomplete = "off";
   select.setAttribute("aria-label", text.choose);
   select.append(makeOption("", text.choose));
 
@@ -475,6 +398,7 @@ function buildRow(node, panel, groups, entry, index) {
   const groupNameColor = visibleGroupNameColor(selected?.color);
   if (!entry) select.style.color = "#6b6b6b";
   else if (groupNameColor) select.style.color = groupNameColor;
+
   const selectedElsewhere = new Set(
     savedGroups(node)
       .filter((candidate) => candidate !== entry)
@@ -482,9 +406,7 @@ function buildRow(node, panel, groups, entry, index) {
       .filter(Boolean)
   );
 
-  if (entry && !selected) {
-    select.append(makeOption("__terry_missing__", `${entry.title} (${text.missing})`, true));
-  }
+  if (entry && !selected) select.append(makeOption("__terry_missing__", `${entry.title} (${text.missing})`, true));
   for (const item of groups) {
     if (selectedElsewhere.has(item.key)) continue;
     select.append(makeOption(item.key, item.label, false, item.color));
@@ -508,8 +430,7 @@ function buildRow(node, panel, groups, entry, index) {
   row.append(select);
 
   if (entry && selected) {
-    const enabled = groupIsEnabled(selected.group, selected.graph);
-    Object.assign(entry, entryForGroup(selected, enabled));
+    Object.assign(entry, entryForGroup(selected, groupIsEnabled(selected.group, selected.graph)));
   }
 
   const enabled = Boolean(entry?.enabled);
@@ -518,9 +439,7 @@ function buildRow(node, panel, groups, entry, index) {
   toggle.className = "terry-group-manager__toggle";
   toggle.setAttribute("role", "switch");
   toggle.setAttribute("aria-checked", String(enabled));
-  toggle.setAttribute("aria-label", entry
-    ? `${entry.title}: ${enabled ? text.enabled : text.bypassed}`
-    : text.choose);
+  toggle.setAttribute("aria-label", entry ? `${entry.title}: ${enabled ? text.enabled : text.bypassed}` : text.choose);
   toggle.title = enabled ? text.enabled : text.bypassed;
   toggle.textContent = enabled ? text.on : text.off;
   toggle.disabled = !selected;
@@ -540,7 +459,6 @@ function buildRow(node, panel, groups, entry, index) {
     if (entry) navigateToGroup(entry);
   });
   row.append(navigate);
-
   panel.append(row);
 }
 
@@ -549,9 +467,9 @@ function signatureFor(node, groups) {
     zh: isChinese(),
     groups: groups.map((item) => [item.key, item.title, item.label, item.color]),
     selected: savedGroups(node).map((entry) => {
-      const group = matchingGroup(entry, groups);
-      const enabled = group ? groupIsEnabled(group.group, group.graph) : entry.enabled;
-      return [entry.key, entry.title, enabled, Boolean(group)];
+      const item = matchingGroup(entry, groups);
+      const enabled = item ? groupIsEnabled(item.group, item.graph) : entry.enabled;
+      return [entry.key, entry.title, enabled, Boolean(item)];
     }),
   });
 }
@@ -562,10 +480,8 @@ function renderManager(node, force = false) {
   const groups = workflowGroups();
   const signature = signatureFor(node, groups);
   if (!force && panel.__terrySignature === signature) return;
-
   const focused = document.activeElement;
   if (!force && focused && panel.contains(focused)) return;
-
   panel.__terrySignature = signature;
   panel.replaceChildren();
   for (const [index, entry] of savedGroups(node).entries()) buildRow(node, panel, groups, entry, index);
@@ -576,12 +492,10 @@ function renderManager(node, force = false) {
 function installManager(node) {
   if (!isManager(node) || node.__terryGroupManager || typeof node.addDOMWidget !== "function") return;
   installStyle();
-
   const panel = document.createElement("div");
   panel.className = "terry-group-manager";
   panel.addEventListener("pointerdown", (event) => event.stopPropagation());
   panel.addEventListener("keydown", (event) => event.stopPropagation());
-
   const widget = node.addDOMWidget("terry_group_manager_panel", "terry_group_manager_panel", panel, {
     serialize: false,
     hideOnZoom: false,
@@ -641,7 +555,6 @@ app.registerExtension({
 
   beforeRegisterNodeDef(nodeType, nodeData) {
     if (nodeData?.name !== NODE_ID) return;
-
     const created = nodeType.prototype.onNodeCreated;
     nodeType.prototype.onNodeCreated = function () {
       const result = created?.apply(this, arguments);
@@ -652,9 +565,7 @@ app.registerExtension({
       startRefresh();
       return result;
     };
-
     nodeType.prototype.applyToGraph = function () {};
-
     const configure = nodeType.prototype.onConfigure;
     nodeType.prototype.onConfigure = function () {
       const result = configure?.apply(this, arguments);
