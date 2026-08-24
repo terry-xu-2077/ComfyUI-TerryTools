@@ -4,6 +4,7 @@ const NODE_ID = "TerryGroupManager";
 const STATE_PROPERTY = "terry_group_manager_groups";
 const MODE_ALWAYS = 0;
 const MODE_BYPASS = 4;
+const SYNC_INTERVAL = 400;
 
 function nodeType(node) {
   return String(node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || "");
@@ -29,34 +30,64 @@ function values(collection) {
   return Object.values(collection);
 }
 
-function allGraphs(root = app.graph?.rootGraph || app.rootGraph || app.graph) {
+function rootGraph() {
+  return app.graph?.rootGraph || app.rootGraph || app.graph || null;
+}
+
+function graphsLikeRgthree() {
+  const root = rootGraph();
   if (!root) return [];
-  const result = [];
-  const seen = new Set();
-  const queue = [root];
-  while (queue.length) {
-    const graph = queue.shift();
-    if (!graph || seen.has(graph)) continue;
-    seen.add(graph);
-    result.push(graph);
-    for (const node of graph?._nodes || graph?.nodes || []) {
-      if (node?.subgraph) queue.push(node.subgraph);
-    }
-    for (const collection of [graph?.subgraphs, graph?._subgraphs]) {
-      for (const child of values(collection)) queue.push(child?.subgraph || child);
+  const result = [root];
+  const seen = new Set(result);
+  for (const subgraph of values(root.subgraphs || root._subgraphs)) {
+    const graph = subgraph?.subgraph || subgraph;
+    if (graph && !seen.has(graph)) {
+      seen.add(graph);
+      result.push(graph);
     }
   }
   return result;
 }
 
-function rectOf(item) {
-  const bounds = item?._bounding || item?.boundingRect;
-  if (bounds && bounds.length >= 4) {
-    const result = [Number(bounds[0]), Number(bounds[1]), Number(bounds[2]), Number(bounds[3])];
+function reduceNodesDepthFirst(nodeOrNodes, callback) {
+  const initial = Array.isArray(nodeOrNodes) ? nodeOrNodes : [nodeOrNodes];
+  const stack = [];
+  for (let i = initial.length - 1; i >= 0; i--) stack.push(initial[i]);
+  const visited = new Set();
+  while (stack.length) {
+    const node = stack.pop();
+    if (!node || visited.has(node)) continue;
+    visited.add(node);
+    callback(node);
+    const subgraph = node.subgraph;
+    const children = subgraph?.nodes || subgraph?._nodes;
+    if (!children) continue;
+    for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
+  }
+}
+
+function graphNodeKey(node) {
+  const graph = node?.graph || rootGraph();
+  return `${graph?.id ?? graph?._id ?? "root"}:${node?.id}`;
+}
+
+function boundingOf(node) {
+  let bounds = null;
+  try {
+    bounds = node?.getBounding?.();
+  } catch {}
+  if (bounds?.length >= 4 && Array.from(bounds).every((v) => Number.isFinite(Number(v)))) {
+    if (!(Number(bounds[0]) === 0 && Number(bounds[1]) === 0 && Number(bounds[2]) === 0 && Number(bounds[3]) === 0)) {
+      return [Number(bounds[0]), Number(bounds[1]), Number(bounds[2]), Number(bounds[3])];
+    }
+  }
+  const raw = node?._bounding || node?.boundingRect;
+  if (raw?.length >= 4) {
+    const result = [Number(raw[0]), Number(raw[1]), Number(raw[2]), Number(raw[3])];
     if (result.every(Number.isFinite)) return result;
   }
-  const pos = item?._pos || item?.pos;
-  const size = item?._size || item?.size;
+  const pos = node?._pos || node?.pos;
+  const size = node?._size || node?.size;
   if (pos?.length >= 2 && size?.length >= 2) {
     const result = [Number(pos[0]), Number(pos[1]), Number(size[0]), Number(size[1])];
     if (result.every(Number.isFinite)) return result;
@@ -64,60 +95,118 @@ function rectOf(item) {
   return null;
 }
 
-function inside(node, groupRect) {
-  const rect = rectOf(node);
-  if (!rect || !groupRect) return false;
-  const [gx, gy, gw, gh] = groupRect;
-  const [x, y, w, h] = rect;
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  return cx >= gx && cx <= gx + gw && cy >= gy && cy <= gy + gh;
+function allNodeBoundings() {
+  const root = rootGraph();
+  const cache = new Map();
+  if (!root) return cache;
+  reduceNodesDepthFirst(root._nodes || root.nodes || [], (node) => {
+    const bounds = boundingOf(node);
+    if (bounds) cache.set(graphNodeKey(node), bounds);
+  });
+  return cache;
 }
 
-function findManagerForPanel(panel) {
-  for (const graph of allGraphs()) {
-    for (const node of graph?._nodes || graph?.nodes || []) {
-      if (isManager(node) && node.__terryGroupManager?.panel === panel) return node;
+function recomputeGroup(group, cachedBoundings) {
+  const graph = group?.graph;
+  const nodes = graph?.nodes || graph?._nodes || [];
+  const groupBounds = group?._bounding || group?.boundingRect;
+  if (!graph || !groupBounds?.length || groupBounds.length < 4) return [];
+
+  if (group._children?.clear) group._children.clear();
+  if (Array.isArray(group.nodes)) group.nodes.length = 0;
+
+  const gx = Number(groupBounds[0]);
+  const gy = Number(groupBounds[1]);
+  const gw = Number(groupBounds[2]);
+  const gh = Number(groupBounds[3]);
+  const inside = [];
+
+  for (const node of nodes) {
+    if (!node || isManager(node)) continue;
+    const bounds = cachedBoundings.get(graphNodeKey(node)) || boundingOf(node);
+    if (!bounds) continue;
+    const cx = bounds[0] + bounds[2] * 0.5;
+    const cy = bounds[1] + bounds[3] * 0.5;
+    if (cx >= gx && cx < gx + gw && cy >= gy && cy < gy + gh) {
+      inside.push(node);
+      group._children?.add?.(node);
+      if (Array.isArray(group.nodes)) group.nodes.push(node);
+    }
+  }
+  return inside;
+}
+
+function findGroup(entry, cachedBoundings = allNodeBoundings()) {
+  const targetGraphId = String(entry?.graphId ?? "");
+  const targetGroupId = String(entry?.groupId ?? "");
+  const targetTitle = String(entry?.title ?? "");
+
+  for (const graph of graphsLikeRgthree()) {
+    const graphId = String(graph?.id ?? graph?._id ?? "");
+    if (targetGraphId && graphId !== targetGraphId) continue;
+    for (const group of values(graph?._groups || graph?.groups)) {
+      const groupId = String(group?.id ?? group?._id ?? "");
+      if ((targetGroupId && groupId === targetGroupId) || (!targetGroupId && String(group?.title || "") === targetTitle)) {
+        if (!group.graph) group.graph = graph;
+        const nodes = recomputeGroup(group, cachedBoundings);
+        return { graph, group, nodes };
+      }
     }
   }
   return null;
 }
 
-function findGraph(entry) {
-  return allGraphs().find((graph) => String(graph?.id ?? graph?._id) === String(entry?.graphId)) || null;
+function setModeDepthFirst(nodes, mode) {
+  reduceNodesDepthFirst(nodes, (node) => {
+    if (!node || isManager(node)) return;
+    node.mode = mode;
+    node.graph?.change?.();
+    node.setDirtyCanvas?.(true, true);
+  });
 }
 
-function findGroup(graph, entry) {
-  const groups = values(graph?._groups ?? graph?.groups ?? []);
-  if (entry?.groupId != null && entry.groupId !== "") {
-    const byId = groups.find((group) => String(group?.id ?? group?._id) === String(entry.groupId));
-    if (byId) return byId;
-  }
-  return groups.find((group) => String(group?.title || "") === String(entry?.title || "")) || null;
+function actualEnabled(nodes, fallback) {
+  if (!nodes.length) return Boolean(fallback);
+  return nodes.some((node) => node.mode !== MODE_BYPASS);
 }
 
-function groupNodes(graph, group) {
-  const groupRect = rectOf(group);
-  const nodes = Array.from(graph?._nodes || graph?.nodes || []);
-  if (groupRect) return nodes.filter((node) => node && !isManager(node) && inside(node, groupRect));
-  try {
-    if (!group?.graph && graph) group.graph = graph;
-    group?.recomputeInsideNodes?.();
-  } catch {}
-  return Array.from(group?._nodes || group?.nodes || []).filter((node) => node && !isManager(node));
-}
-
-function setModeRecursive(node, mode, visited = new Set()) {
-  if (!node || isManager(node) || visited.has(node)) return;
-  visited.add(node);
-  node.mode = mode;
-  node.graph?.change?.();
-  node.setDirtyCanvas?.(true, true);
-  if (node.subgraph) {
-    for (const child of node.subgraph?._nodes || node.subgraph?.nodes || []) {
-      setModeRecursive(child, mode, visited);
+function managers() {
+  const result = [];
+  for (const graph of graphsLikeRgthree()) {
+    for (const node of graph?._nodes || graph?.nodes || []) {
+      if (isManager(node)) result.push(node);
     }
   }
+  return result;
+}
+
+function updateButton(button, enabled, title = "") {
+  if (!button) return;
+  const zh = isChinese();
+  button.setAttribute("aria-checked", String(enabled));
+  button.setAttribute("aria-label", title ? `${title}: ${enabled ? (zh ? "已启用" : "Enabled") : (zh ? "已旁路" : "Bypassed")}` : "");
+  button.title = enabled ? (zh ? "已启用" : "Enabled") : (zh ? "已旁路" : "Bypassed");
+  button.textContent = enabled ? (zh ? "开启" : "yes") : (zh ? "关闭" : "no");
+}
+
+function syncManager(manager, cachedBoundings = allNodeBoundings()) {
+  const entries = manager?.properties?.[STATE_PROPERTY];
+  if (!Array.isArray(entries)) return;
+  const panel = manager.__terryGroupManager?.panel;
+  const rows = panel ? Array.from(panel.querySelectorAll(".terry-group-manager__row")) : [];
+
+  entries.forEach((entry, index) => {
+    const found = findGroup(entry, cachedBoundings);
+    if (!found) return;
+    const enabled = actualEnabled(found.nodes, entry.enabled);
+    entry.enabled = enabled;
+    updateButton(rows[index]?.querySelector?.(".terry-group-manager__toggle"), enabled, entry.title);
+  });
+}
+
+function syncAllManagers() {
+  const cachedBoundings = allNodeBoundings();
+  for (const manager of managers()) syncManager(manager, cachedBoundings);
 }
 
 function handleToggle(event) {
@@ -125,40 +214,39 @@ function handleToggle(event) {
   if (!button) return;
   const panel = button.closest?.(".terry-group-manager");
   if (!panel) return;
-  const manager = findManagerForPanel(panel);
+  const manager = managers().find((node) => node.__terryGroupManager?.panel === panel);
   if (!manager) return;
+
   const row = button.closest?.(".terry-group-manager__row");
   const index = row ? Array.from(panel.children).indexOf(row) : -1;
   const entries = manager.properties?.[STATE_PROPERTY];
   const entry = Array.isArray(entries) && index >= 0 ? entries[index] : null;
   if (!entry) return;
 
+  const found = findGroup(entry);
+  if (!found) return;
+
   event.preventDefault();
   event.stopPropagation();
   event.stopImmediatePropagation();
 
-  const graph = findGraph(entry);
-  const group = graph ? findGroup(graph, entry) : null;
-  if (!graph || !group) return;
-
-  const nodes = groupNodes(graph, group);
-  const enable = !Boolean(entry.enabled);
-  const mode = enable ? MODE_ALWAYS : MODE_BYPASS;
-  for (const node of nodes) setModeRecursive(node, mode);
-
+  const enable = !actualEnabled(found.nodes, entry.enabled);
+  setModeDepthFirst(found.nodes, enable ? MODE_ALWAYS : MODE_BYPASS);
   entry.enabled = enable;
-  graph.change?.();
-  graph.setDirtyCanvas?.(true, true);
+  found.graph?.change?.();
+  found.graph?.setDirtyCanvas?.(true, true);
   manager.graph?.change?.();
   manager.setDirtyCanvas?.(true, true);
-
-  button.setAttribute("aria-checked", String(enable));
-  const zh = isChinese();
-  button.textContent = enable ? (zh ? "开启" : "yes") : (zh ? "关闭" : "no");
+  updateButton(button, enable, entry.title);
 }
 
 document.addEventListener("click", handleToggle, true);
+setInterval(syncAllManagers, SYNC_INTERVAL);
 
 app.registerExtension({
   name: "TerryTools.GroupManagerModeFix",
+  afterConfigureGraph() {
+    queueMicrotask(syncAllManagers);
+    setTimeout(syncAllManagers, 50);
+  },
 });
