@@ -34,21 +34,6 @@ function rootGraph() {
   return app.graph?.rootGraph || app.rootGraph || app.graph || null;
 }
 
-function graphsLikeRgthree() {
-  const root = rootGraph();
-  if (!root) return [];
-  const result = [root];
-  const seen = new Set(result);
-  for (const subgraph of values(root.subgraphs || root._subgraphs)) {
-    const graph = subgraph?.subgraph || subgraph;
-    if (graph && !seen.has(graph)) {
-      seen.add(graph);
-      result.push(graph);
-    }
-  }
-  return result;
-}
-
 function reduceNodesDepthFirst(nodeOrNodes, callback) {
   const initial = Array.isArray(nodeOrNodes) ? nodeOrNodes : [nodeOrNodes];
   const stack = [];
@@ -64,6 +49,23 @@ function reduceNodesDepthFirst(nodeOrNodes, callback) {
     if (!children) continue;
     for (let i = children.length - 1; i >= 0; i--) stack.push(children[i]);
   }
+}
+
+function liveGraphsFromNodeTree() {
+  const root = rootGraph();
+  if (!root) return [];
+  const result = [root];
+  const seen = new Set(result);
+
+  reduceNodesDepthFirst(root._nodes || root.nodes || [], (node) => {
+    const graph = node?.subgraph;
+    if (graph && !seen.has(graph)) {
+      seen.add(graph);
+      result.push(graph);
+    }
+  });
+
+  return result;
 }
 
 function graphNodeKey(node) {
@@ -141,7 +143,7 @@ function findGroup(entry, cachedBoundings = allNodeBoundings()) {
   const targetGroupId = String(entry?.groupId ?? "");
   const targetTitle = String(entry?.title ?? "");
 
-  for (const graph of graphsLikeRgthree()) {
+  for (const graph of liveGraphsFromNodeTree()) {
     const graphId = String(graph?.id ?? graph?._id ?? "");
     if (targetGraphId && graphId !== targetGraphId) continue;
     for (const group of values(graph?._groups || graph?.groups)) {
@@ -172,7 +174,7 @@ function actualEnabled(nodes, fallback) {
 
 function managers() {
   const result = [];
-  for (const graph of graphsLikeRgthree()) {
+  for (const graph of liveGraphsFromNodeTree()) {
     for (const node of graph?._nodes || graph?.nodes || []) {
       if (isManager(node)) result.push(node);
     }
