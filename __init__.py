@@ -2,6 +2,7 @@ from comfy_api.latest import ComfyExtension, io
 from typing_extensions import override
 
 from .nodes import (
+    BoolSwitch,
     DateFormatter,
     FileSave,
     H3PromptEditor,
@@ -30,6 +31,7 @@ class TerryToolsExtension(ComfyExtension):
             H3PromptEditor,
             H3ShotTimeline,
             LineSwitch,
+            BoolSwitch,
         ]
 
 
