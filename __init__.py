@@ -6,6 +6,7 @@ from .nodes import (
     FileSave,
     H3PromptEditor,
     H3ShotTimeline,
+    LineSwitch,
     VideoCompare,
 )
 
@@ -28,6 +29,7 @@ class TerryToolsExtension(ComfyExtension):
             VideoCompare,
             H3PromptEditor,
             H3ShotTimeline,
+            LineSwitch,
         ]
 
 
