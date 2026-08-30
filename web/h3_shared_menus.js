@@ -312,7 +312,7 @@ function commands(node, mode) {
     ...[["reference generation","参考生成"],["keyframe completion","关键帧补全"],["video editing","直接编辑已有视频"],["video continuation","从已有视频继续生成"],["audio reuse","直接复用同一音频信号"],["audio reference","只参考音频特征而不复制信号"]].map(([raw, detail]) => ({ category: "task", label: raw, detail, raw: `[${raw}]` })),
     ...H3_CAMERA_COMMANDS.map(([chinese, english, detail, raw]) => ({ category: "camera", label: `${chinese} · ${english}`, detail, raw })),
   ];
-  return mode === "timeline" ? list.filter((item) => item.kind !== "shot-label") : list;
+  return mode === "timeline" ? list.filter((item) => !["shot-label", "timestamp"].includes(item.kind)) : list;
 }
 function category(id) { return id === "camera" ? CAMERA_META : CATEGORY_META.find((item) => item.id === id) || { id, label: id, icon: "›", detail: "" }; }
 function parentCategory(id) { return id === "camera" ? "shot" : null; }
