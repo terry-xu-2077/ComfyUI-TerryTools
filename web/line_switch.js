@@ -2,10 +2,19 @@ import { app } from "../../scripts/app.js";
 import { api } from "../../scripts/api.js";
 
 const NODE_TYPE = "TerryLineSwitch";
+const REMOTE_TYPE = "TerryRemoteControl";
 const MAX_ROUTES = 64;
 const ACTIVE_COLOR = "#ffd45a";
 const ACTIVE_GLOW = "rgba(255, 225, 120, 0.42)";
 const INDEX_PROPERTY = "terry_line_switch_index";
+const CHANNEL_PROPERTY = "terry_control_channel";
+const REMOTE_CHANNEL_PROPERTY = "terry_remote_channel";
+const REMOTE_VALUE_PROPERTY = "terry_remote_value";
+const CHANNEL_WIDGET = "terry_channel";
+const REMOTE_CHANNEL_WIDGET = "terry_remote_channel";
+const REMOTE_VALUE_WIDGET = "terry_remote_value";
+
+const controlAdapters = new Map();
 
 function localeCode() {
   try {
@@ -23,31 +32,52 @@ function isChinese() {
 
 function text() {
   return isChinese()
-    ? { title: "Terry 线路切换器", index: "线路", route: "线路", output: "输出" }
-    : { title: "Terry Line Switch", index: "Route", route: "Route", output: "Output" };
+    ? {
+        title: "Terry 线路切换器",
+        remoteTitle: "Terry 远程控制器",
+        index: "线路",
+        route: "线路",
+        output: "输出",
+        channel: "频道",
+        selectChannel: "选择频道",
+        noChannel: "无可用频道",
+        noTarget: "未找到目标",
+        control: "控制",
+        remoteDescription: "按频道自动识别 Terry 节点控件，并生成对应的远程控制界面。",
+      }
+    : {
+        title: "Terry Line Switch",
+        remoteTitle: "Terry Remote Control",
+        index: "Route",
+        route: "Route",
+        output: "Output",
+        channel: "Channel",
+        selectChannel: "Select Channel",
+        noChannel: "No channels",
+        noTarget: "Target not found",
+        control: "Control",
+        remoteDescription: "Detect Terry node controls by channel and build a matching remote control UI.",
+      };
 }
 
 function nodeType(node) {
   return String(node?.comfyClass || node?.type || node?.constructor?.comfyClass || node?.constructor?.type || "");
 }
 
-function isSwitch(node) {
-  return nodeType(node) === NODE_TYPE;
-}
+function isSwitch(node) { return nodeType(node) === NODE_TYPE; }
+function isRemote(node) { return nodeType(node) === REMOTE_TYPE; }
 
-function graphNodes(graph = app.graph) {
-  if (!graph) return [];
+function allGraphs(root = app.graph) {
+  if (!root) return [];
   const result = [];
   const seen = new Set();
-  const queue = [graph];
+  const queue = [root];
   while (queue.length) {
     const current = queue.shift();
     if (!current || seen.has(current)) continue;
     seen.add(current);
-    for (const node of current?._nodes || current?.nodes || []) {
-      result.push(node);
-      if (node?.subgraph) queue.push(node.subgraph);
-    }
+    result.push(current);
+    for (const node of current?._nodes || current?.nodes || []) if (node?.subgraph) queue.push(node.subgraph);
     for (const collection of [current?.subgraphs, current?._subgraphs]) {
       if (!collection) continue;
       const values = typeof collection.values === "function" ? collection.values() : Object.values(collection);
@@ -55,6 +85,10 @@ function graphNodes(graph = app.graph) {
     }
   }
   return result;
+}
+
+function graphNodes(graph = app.graph) {
+  return allGraphs(graph).flatMap((item) => item?._nodes || item?.nodes || []);
 }
 
 function getLink(graph, linkId) {
@@ -71,8 +105,11 @@ function getLink(graph, linkId) {
   return null;
 }
 
-function getNode(graph, id) {
-  return graph?.getNodeById?.(id) || null;
+function getNode(graph, id) { return graph?.getNodeById?.(id) || null; }
+
+function properties(node) {
+  if (!node.properties || typeof node.properties !== "object") node.properties = {};
+  return node.properties;
 }
 
 function indexInput(node) {
@@ -90,6 +127,10 @@ function indexWidget(node) {
   return (node?.widgets || []).find((widget) => widget?.name === "index") || null;
 }
 
+function widgetByName(node, name) {
+  return (node?.widgets || []).find((widget) => widget?.name === name) || null;
+}
+
 function clampIndex(value, count) {
   const parsed = Number.parseInt(value, 10);
   const safeCount = Math.max(1, Number(count) || 1);
@@ -105,8 +146,6 @@ function upstreamIntegerValue(node) {
   const originId = link.origin_id ?? link.originId;
   const origin = getNode(node.graph, originId);
   if (!origin) return null;
-
-  // Primitive/int control nodes usually expose their current value as a widget.
   for (const widget of origin.widgets || []) {
     const value = Number.parseInt(widget?.value, 10);
     if (Number.isFinite(value)) return value;
@@ -132,32 +171,65 @@ function activeRoute(node) {
   return routes[selectedIndex(node) - 1] || routes[0] || null;
 }
 
+function routeValues(node) {
+  const count = Math.max(1, routeInputs(node).length);
+  return Array.from({ length: Math.min(MAX_ROUTES, count) }, (_, index) => index + 1);
+}
+
 function refreshIndexWidget(node) {
   const widget = indexWidget(node);
   if (!widget) return;
-  const count = Math.max(1, routeInputs(node).length);
-  const values = Array.from({ length: Math.min(MAX_ROUTES, count) }, (_, index) => index + 1);
+  const values = routeValues(node);
   widget.type = "combo";
   widget.options ||= {};
   widget.options.values = values;
-  widget.value = clampIndex(widget.value, count);
+  widget.value = clampIndex(widget.value, values.length);
+}
+
+function controlChannel(node) {
+  return String(properties(node)[CHANNEL_PROPERTY] || widgetByName(node, CHANNEL_WIDGET)?.value || "").trim();
+}
+
+function setControlChannel(node, value) {
+  const next = String(value || "").trim();
+  properties(node)[CHANNEL_PROPERTY] = next;
+  const widget = widgetByName(node, CHANNEL_WIDGET);
+  if (widget && widget.value !== next) widget.value = next;
+  refreshAllRemotes();
+  node.graph?.setDirtyCanvas?.(true, true);
+}
+
+function uniqueDefaultChannel(node) {
+  const base = isChinese() ? "线路切换" : "Line Switch";
+  const names = new Set(graphNodes().filter((item) => item !== node).map(controlChannel).filter(Boolean));
+  if (!names.has(base)) return base;
+  let i = 2;
+  while (names.has(`${base} ${i}`)) i += 1;
+  return `${base} ${i}`;
+}
+
+function ensureChannelWidget(node) {
+  if (!isSwitch(node) || widgetByName(node, CHANNEL_WIDGET)) return;
+  const initial = controlChannel(node) || uniqueDefaultChannel(node);
+  properties(node)[CHANNEL_PROPERTY] = initial;
+  const widget = node.addWidget?.("text", CHANNEL_WIDGET, initial, (value) => setControlChannel(node, value), {});
+  if (widget) {
+    widget.label = text().channel;
+    widget.serialize = true;
+  }
 }
 
 function refreshLabels(node) {
   if (!isSwitch(node)) return;
   const labels = text();
   node.title = labels.title;
-
   const index = indexInput(node);
   if (index) index.label = labels.index;
-
-  routeInputs(node).forEach((input, routeIndex) => {
-    input.label = `${labels.route} ${routeIndex + 1}`;
-  });
-
+  routeInputs(node).forEach((input, routeIndex) => { input.label = `${labels.route} ${routeIndex + 1}`; });
   const output = node.outputs?.[0];
   if (output) output.label = labels.output;
-
+  const channel = widgetByName(node, CHANNEL_WIDGET);
+  if (channel) channel.label = labels.channel;
   refreshIndexWidget(node);
   node.graph?.setDirtyCanvas?.(true, true);
 }
@@ -166,16 +238,167 @@ function refreshNode(node) {
   if (!isSwitch(node)) return;
   node.resizable = false;
   node.serialize_widgets = true;
-  node.properties ||= {};
+  properties(node);
   if (node.properties[INDEX_PROPERTY] == null) node.properties[INDEX_PROPERTY] = 1;
+  ensureChannelWidget(node);
   refreshLabels(node);
+  refreshAllRemotes();
+}
+
+function registerControlAdapter(type, adapter) {
+  controlAdapters.set(type, adapter);
+}
+
+registerControlAdapter(NODE_TYPE, {
+  kind: "combo",
+  describe(node) {
+    const values = routeValues(node);
+    return {
+      kind: "combo",
+      label: text().index,
+      values,
+      value: clampIndex(selectedIndex(node), values.length),
+    };
+  },
+  set(node, value) {
+    if (indexInput(node)?.link != null) return false;
+    const widget = indexWidget(node);
+    const next = clampIndex(value, routeValues(node).length);
+    if (widget) widget.value = next;
+    properties(node)[INDEX_PROPERTY] = next;
+    node.__terryRuntimeIndex = next;
+    node.onWidgetChanged?.("index", next, widget, widget);
+    node.graph?.setDirtyCanvas?.(true, true);
+    return true;
+  },
+});
+
+function channelTargets() {
+  return graphNodes().filter((node) => controlAdapters.has(nodeType(node)) && controlChannel(node));
+}
+
+function channelNames() {
+  return [...new Set(channelTargets().map(controlChannel))].sort((a, b) => a.localeCompare(b));
+}
+
+function targetForChannel(channel) {
+  const name = String(channel || "").trim();
+  return channelTargets().find((node) => controlChannel(node) === name) || null;
+}
+
+function remoteChannel(node) {
+  return String(properties(node)[REMOTE_CHANNEL_PROPERTY] || widgetByName(node, REMOTE_CHANNEL_WIDGET)?.value || "").trim();
+}
+
+function setRemoteChannel(node, value) {
+  const next = String(value || "").trim();
+  properties(node)[REMOTE_CHANNEL_PROPERTY] = next;
+  const widget = widgetByName(node, REMOTE_CHANNEL_WIDGET);
+  if (widget && widget.value !== next) widget.value = next;
+  refreshRemote(node, true);
+}
+
+function removeWidget(node, widget) {
+  const index = node?.widgets?.indexOf(widget) ?? -1;
+  if (index >= 0) node.widgets.splice(index, 1);
+  widget?.onRemove?.();
+}
+
+function ensureRemoteChannelWidget(node) {
+  let widget = widgetByName(node, REMOTE_CHANNEL_WIDGET);
+  if (!widget) {
+    widget = node.addWidget?.("combo", REMOTE_CHANNEL_WIDGET, remoteChannel(node), (value) => setRemoteChannel(node, value), {
+      values: () => channelNames(),
+    });
+  }
+  if (!widget) return null;
+  widget.label = text().channel;
+  widget.options ||= {};
+  widget.options.values = () => channelNames();
+  widget.serialize = true;
+  return widget;
+}
+
+function rebuildRemoteValueWidget(node, description, force = false) {
+  const signature = description
+    ? `${description.kind}|${description.label}|${(description.values || []).join("|")}`
+    : "none";
+  let widget = widgetByName(node, REMOTE_VALUE_WIDGET);
+  if (!force && widget && node.__terryRemoteSignature === signature) return widget;
+  if (widget) removeWidget(node, widget);
+  node.__terryRemoteSignature = signature;
+  if (!description) return null;
+
+  const callback = (value) => {
+    const target = targetForChannel(remoteChannel(node));
+    const adapter = target && controlAdapters.get(nodeType(target));
+    if (!target || !adapter) return;
+    if (adapter.set(target, value) !== false) {
+      properties(node)[REMOTE_VALUE_PROPERTY] = value;
+      node.graph?.setDirtyCanvas?.(true, true);
+    }
+  };
+
+  if (description.kind === "combo") {
+    widget = node.addWidget?.("combo", REMOTE_VALUE_WIDGET, description.value, callback, {
+      values: description.values || [],
+    });
+  } else if (description.kind === "toggle") {
+    widget = node.addWidget?.("toggle", REMOTE_VALUE_WIDGET, Boolean(description.value), callback, {});
+  } else if (description.kind === "number") {
+    widget = node.addWidget?.("number", REMOTE_VALUE_WIDGET, Number(description.value) || 0, callback, description.options || {});
+  } else {
+    widget = node.addWidget?.("text", REMOTE_VALUE_WIDGET, String(description.value ?? ""), callback, {});
+  }
+  if (widget) {
+    widget.label = description.label || text().control;
+    widget.serialize = true;
+  }
+  return widget;
+}
+
+function refreshRemote(node, force = false) {
+  if (!isRemote(node)) return;
+  node.isVirtualNode = true;
+  node.serialize_widgets = true;
+  node.resizable = false;
+  node.title = text().remoteTitle;
+  const channelWidget = ensureRemoteChannelWidget(node);
+  const names = channelNames();
+  if (channelWidget) {
+    channelWidget.options.values = () => channelNames();
+    const current = remoteChannel(node);
+    if (!current && names.length) {
+      channelWidget.value = names[0];
+      properties(node)[REMOTE_CHANNEL_PROPERTY] = names[0];
+    } else if (current && !names.includes(current)) {
+      // Keep the stored name so the remote reconnects automatically if the target returns.
+      channelWidget.value = current;
+    }
+  }
+
+  const target = targetForChannel(remoteChannel(node));
+  const adapter = target && controlAdapters.get(nodeType(target));
+  const description = adapter?.describe?.(target) || null;
+  const valueWidget = rebuildRemoteValueWidget(node, description, force);
+  if (valueWidget && description) {
+    valueWidget.label = description.label || text().control;
+    valueWidget.value = description.value;
+    valueWidget.options ||= {};
+    if (description.kind === "combo") valueWidget.options.values = description.values || [];
+  }
+  properties(node)[REMOTE_VALUE_PROPERTY] = description?.value ?? properties(node)[REMOTE_VALUE_PROPERTY];
+  node.setDirtyCanvas?.(true, true);
+  node.graph?.setDirtyCanvas?.(true, true);
+}
+
+function refreshAllRemotes() {
+  for (const node of graphNodes()) if (isRemote(node)) refreshRemote(node);
 }
 
 function connectionPos(node, input, isInput) {
   if (!node || !input) return null;
-  const slot = isInput
-    ? (node.inputs || []).indexOf(input)
-    : (node.outputs || []).indexOf(input);
+  const slot = isInput ? (node.inputs || []).indexOf(input) : (node.outputs || []).indexOf(input);
   if (slot < 0) return null;
   try {
     const out = [0, 0];
@@ -204,7 +427,6 @@ function drawActiveWire(ctx, node, now) {
   const origin = getNode(node.graph, originId);
   const output = origin?.outputs?.[originSlot];
   if (!origin || !output) return;
-
   const start = connectionPos(origin, output, false);
   const end = connectionPos(node, input, true);
   if (!start || !end) return;
@@ -212,20 +434,17 @@ function drawActiveWire(ctx, node, now) {
   ctx.save();
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
-
   bezier(ctx, start, end);
   ctx.strokeStyle = ACTIVE_GLOW;
   ctx.lineWidth = 8;
   ctx.setLineDash([]);
   ctx.stroke();
-
   bezier(ctx, start, end);
   ctx.strokeStyle = ACTIVE_COLOR;
   ctx.lineWidth = 3;
   ctx.setLineDash([12, 9]);
   ctx.lineDashOffset = -((now / 28) % 21);
   ctx.stroke();
-
   ctx.restore();
 }
 
@@ -233,9 +452,7 @@ function drawSwitchHighlights(canvas, ctx) {
   const graph = canvas?.graph || app.graph;
   if (!graph || !ctx) return;
   const now = performance.now();
-  for (const node of graph?._nodes || []) {
-    if (isSwitch(node)) drawActiveWire(ctx, node, now);
-  }
+  for (const node of graph?._nodes || []) if (isSwitch(node)) drawActiveWire(ctx, node, now);
 }
 
 function patchCanvas() {
@@ -243,7 +460,6 @@ function patchCanvas() {
   if (!Canvas?.prototype || Canvas.prototype.__terryLineSwitchPatched) return false;
   const original = Canvas.prototype.drawConnections;
   if (typeof original !== "function") return false;
-
   Canvas.prototype.drawConnections = function () {
     const result = original.apply(this, arguments);
     try {
@@ -284,60 +500,107 @@ function installExecutedListener() {
     const value = Array.isArray(raw) ? raw[0] : raw;
     const parsed = Number.parseInt(value, 10);
     if (!Number.isFinite(parsed)) return;
-    const node = app.graph?.getNodeById?.(nodeId);
-    if (!isSwitch(node)) return;
-    node.__terryRuntimeIndex = parsed;
-    node.properties ||= {};
-    node.properties[INDEX_PROPERTY] = parsed;
-    node.graph?.setDirtyCanvas?.(true, true);
+    for (const graph of allGraphs()) {
+      const node = graph?.getNodeById?.(nodeId);
+      if (!isSwitch(node)) continue;
+      node.__terryRuntimeIndex = parsed;
+      properties(node)[INDEX_PROPERTY] = parsed;
+      node.graph?.setDirtyCanvas?.(true, true);
+      refreshAllRemotes();
+      break;
+    }
   });
+}
+
+function remoteNodeDef() {
+  const labels = text();
+  return {
+    name: REMOTE_TYPE,
+    display_name: labels.remoteTitle,
+    description: labels.remoteDescription,
+    category: isChinese() ? "TerryTools/线束整理" : "TerryTools/Wire Management",
+    python_module: "custom_nodes.ComfyUI-TerryTools",
+    input: { required: {} },
+    output: [],
+    output_name: [],
+    output_is_list: [],
+    output_node: false,
+  };
 }
 
 app.registerExtension({
   name: "Terry.LineSwitch",
 
+  addCustomNodeDefs(defs) {
+    defs[REMOTE_TYPE] = remoteNodeDef();
+  },
+
   beforeRegisterNodeDef(nodeType, nodeData) {
-    if (nodeData?.name !== NODE_TYPE) return;
+    if (nodeData?.name === NODE_TYPE) {
+      const originalCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function () {
+        const result = originalCreated?.apply(this, arguments);
+        queueMicrotask(() => refreshNode(this));
+        return result;
+      };
 
-    const originalCreated = nodeType.prototype.onNodeCreated;
-    nodeType.prototype.onNodeCreated = function () {
-      const result = originalCreated?.apply(this, arguments);
-      queueMicrotask(() => refreshNode(this));
-      return result;
-    };
+      const originalConfigure = nodeType.prototype.onConfigure;
+      nodeType.prototype.onConfigure = function () {
+        const result = originalConfigure?.apply(this, arguments);
+        queueMicrotask(() => refreshNode(this));
+        return result;
+      };
 
-    const originalConfigure = nodeType.prototype.onConfigure;
-    nodeType.prototype.onConfigure = function () {
-      const result = originalConfigure?.apply(this, arguments);
-      queueMicrotask(() => refreshNode(this));
-      return result;
-    };
+      const originalConnections = nodeType.prototype.onConnectionsChange;
+      nodeType.prototype.onConnectionsChange = function () {
+        const result = originalConnections?.apply(this, arguments);
+        queueMicrotask(() => refreshNode(this));
+        return result;
+      };
 
-    const originalConnections = nodeType.prototype.onConnectionsChange;
-    nodeType.prototype.onConnectionsChange = function () {
-      const result = originalConnections?.apply(this, arguments);
-      queueMicrotask(() => refreshNode(this));
-      return result;
-    };
+      const originalWidgetChanged = nodeType.prototype.onWidgetChanged;
+      nodeType.prototype.onWidgetChanged = function (name, value) {
+        const result = originalWidgetChanged?.apply(this, arguments);
+        if (name === "index") {
+          properties(this)[INDEX_PROPERTY] = Number.parseInt(value, 10) || 1;
+          this.graph?.setDirtyCanvas?.(true, true);
+          queueMicrotask(refreshAllRemotes);
+        } else if (name === CHANNEL_WIDGET) {
+          setControlChannel(this, value);
+        }
+        return result;
+      };
+    }
 
-    const originalWidgetChanged = nodeType.prototype.onWidgetChanged;
-    nodeType.prototype.onWidgetChanged = function (name, value) {
-      const result = originalWidgetChanged?.apply(this, arguments);
-      if (name === "index") {
-        this.properties ||= {};
-        this.properties[INDEX_PROPERTY] = Number.parseInt(value, 10) || 1;
-        this.graph?.setDirtyCanvas?.(true, true);
-      }
-      return result;
-    };
+    if (nodeData?.name === REMOTE_TYPE) {
+      const originalCreated = nodeType.prototype.onNodeCreated;
+      nodeType.prototype.onNodeCreated = function () {
+        const result = originalCreated?.apply(this, arguments);
+        this.isVirtualNode = true;
+        this.applyToGraph = function () {};
+        queueMicrotask(() => refreshRemote(this, true));
+        return result;
+      };
+      const originalConfigure = nodeType.prototype.onConfigure;
+      nodeType.prototype.onConfigure = function () {
+        const result = originalConfigure?.apply(this, arguments);
+        this.isVirtualNode = true;
+        this.applyToGraph = function () {};
+        queueMicrotask(() => refreshRemote(this, true));
+        return result;
+      };
+      nodeType.prototype.applyToGraph = function () {};
+    }
   },
 
   nodeCreated(node) {
     if (isSwitch(node)) queueMicrotask(() => refreshNode(node));
+    if (isRemote(node)) queueMicrotask(() => refreshRemote(node, true));
   },
 
   loadedGraphNode(node) {
     if (isSwitch(node)) queueMicrotask(() => refreshNode(node));
+    if (isRemote(node)) queueMicrotask(() => refreshRemote(node, true));
   },
 
   setup() {
@@ -346,7 +609,17 @@ app.registerExtension({
     startAnimation();
     setInterval(() => {
       patchCanvas();
-      for (const node of graphNodes()) if (isSwitch(node)) refreshLabels(node);
+      for (const node of graphNodes()) {
+        if (isSwitch(node)) refreshLabels(node);
+        else if (isRemote(node)) refreshRemote(node);
+      }
     }, 500);
+  },
+
+  afterConfigureGraph() {
+    for (const node of graphNodes()) {
+      if (isSwitch(node)) refreshNode(node);
+      else if (isRemote(node)) refreshRemote(node, true);
+    }
   },
 });
