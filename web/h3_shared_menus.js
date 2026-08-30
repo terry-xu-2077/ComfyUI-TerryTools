@@ -303,7 +303,7 @@ function commands(node, mode) {
     { category: "structure", label: "overall_soundscape", detail: "环境声、动作声与非语言人声汇总", raw: "overall_soundscape:" },
     { category: "structure", label: "non_diegetic_music", detail: "非剧情内音乐", raw: "non_diegetic_music:", defaultBody: "N/A" },
     { category: "shot", label: `[Shot ${shot}]`, detail: `插入第 ${shot} 个镜头分段标签`, raw: `[Shot ${shot}]`, kind: "shot-label" },
-    { category: "shot", label: "时间戳", detail: "插入可视化时间标签 00:00.000", raw: "00:00.000", kind: "timestamp" },
+    { category: "shot", label: "时间戳", detail: "插入秒级时间标签 [00:00]", raw: "[00:00]", kind: "timestamp" },
     { category: "shot", label: `说话人 S${speaker}`, detail: "插入下一个全局说话人编号", raw: `(S${speaker})`, kind: "speaker" },
     { category: "dialogue", label: "对白块", detail: "插入可编辑对白块", raw: `<d>[${defaultDialogueLanguage()}] </d>`, kind: "dialogue" },
     { category: "dialogue", label: "scenetrans", detail: "对白或音频跨镜头连续", raw: "<scenetrans>" },
