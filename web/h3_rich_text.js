@@ -67,7 +67,7 @@ const LANGUAGE_ZH = {
   Polish: "波兰语", Dutch: "荷兰语", Other: "其他",
 };
 
-const BASE_TOKEN_PATTERN = /<d>\[[^\]]+\][\s\S]*?<\/d>|<(?:Subject|Picture|Video|Audio)\s+\d+>|\[Shot\s+\d+\]|\(S\d+\)|<scenetrans>|<cutoff>|\b(?:fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)\b|\b\d{2}:\d{2}\.\d{3}\b|^(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):|\[(?:reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(?:\s*\+[^\]]+)?\]/gmi;
+const BASE_TOKEN_PATTERN = /<d>\[[^\]]+\][\s\S]*?<\/d>|<(?:Subject|Picture|Video|Audio)\s+\d+>|\[Shot\s+\d+\]|\(S\d+\)|<scenetrans>|<cutoff>|\b(?:fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)\b|\[\d{2}:\d{2}\]|^(?:subject_definitions|summary|retention_analysis|detailed_description|integrated_multimodal_description|overall_soundscape|non_diegetic_music):|\[(?:reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(?:\s*\+[^\]]+)?\]/gmi;
 const CAMERA_TOKEN_PATTERN = H3_CAMERA_COMMANDS
   .map(([, , , raw]) => raw.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
   .sort((left, right) => right.length - left.length)
@@ -108,7 +108,7 @@ export function h3TokenType(raw) {
   if (/^\(S\d+\)$/i.test(value)) return "speaker";
   if (/^<d>\[/i.test(value)) return "dialogue";
   if (/^(fully_preserved|partially_preserved|attribute_transfer|weak_reference|fully_copy|partially_copy|reference)$/i.test(value)) return "retention";
-  if (/^\d{2}:\d{2}\.\d{3}$/.test(value)) return "time";
+  if (/^\[\d{2}:\d{2}\]$/.test(value)) return "time";
   if (/^<(scenetrans|cutoff)>$/i.test(value)) return "transition";
   if (/^\[(reference generation|keyframe completion|video editing|video continuation|audio reuse|audio reference)(\s*\+[^\]]+)?\]$/i.test(value)) return "task";
   if (cameraCommand(value)) return "camera";
@@ -135,7 +135,8 @@ export function h3VisibleLabel(raw) {
   if (m) return zh ? `镜头 ${m[1]}` : `Shot ${m[1]}`;
   m = value.match(/^\(S(\d+)\)$/i);
   if (m) return zh ? `说话人 S${m[1]}` : `Speaker S${m[1]}`;
-  if (/^\d{2}:\d{2}\.\d{3}$/.test(value)) return zh ? `时间 ${value}` : `Time ${value}`;
+  m = value.match(/^\[(\d{2}:\d{2})\]$/);
+  if (m) return zh ? `时间 ${m[1]}` : `Time ${m[1]}`;
   return value;
 }
 
@@ -254,6 +255,7 @@ export function createH3TokenNode(raw, options = {}) {
   chip.append(label);
   if (type === "shot") chip.title = h3LocaleIsZh() ? "点击切换镜头序号" : "Click to change shot number";
   if (type === "speaker") chip.title = h3LocaleIsZh() ? "点击切换说话人序号" : "Click to change speaker number";
+  if (type === "time") chip.title = h3LocaleIsZh() ? "点击编辑时间戳" : "Click to edit timestamp";
   if (type === "camera") chip.title = h3LocaleIsZh() ? "点击切换镜头运动" : "Click to change camera movement";
   return chip;
 }
@@ -405,6 +407,78 @@ function openNumberPicker(editor, chip, type, options, state) {
   }, { capture: true, signal: abort.signal }), 0);
 }
 
+function openTimePicker(editor, chip, options, state) {
+  closePicker(state);
+  const current = String(chip.dataset.raw || "[00:00]").match(/^\[(\d{2}):(\d{2})\]$/);
+  const menu = document.createElement("div");
+  menu.className = "terry-h3-number-picker terry-h3-time-picker";
+
+  const head = document.createElement("div");
+  head.className = "terry-h3-number-picker-head";
+  head.textContent = h3LocaleIsZh() ? "编辑时间戳" : "Edit timestamp";
+  menu.append(head);
+
+  const row = document.createElement("div");
+  row.className = "terry-h3-time-picker-row";
+  const minutes = document.createElement("input");
+  const seconds = document.createElement("input");
+  for (const field of [minutes, seconds]) {
+    field.type = "number";
+    field.min = "0";
+    field.max = field === seconds ? "59" : "99";
+    field.step = "1";
+    field.inputMode = "numeric";
+  }
+  minutes.value = String(Number(current?.[1] || 0));
+  seconds.value = String(Number(current?.[2] || 0));
+  const colon = document.createElement("span");
+  colon.textContent = ":";
+  row.append(minutes, colon, seconds);
+
+  const apply = () => {
+    const mm = Math.max(0, Math.min(99, Math.floor(Number(minutes.value) || 0)));
+    const ss = Math.max(0, Math.min(59, Math.floor(Number(seconds.value) || 0)));
+    chip.dataset.raw = `[${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}]`;
+    const label = [...chip.children].reverse().find((item) => item.tagName === "SPAN") || chip;
+    label.textContent = h3VisibleLabel(chip.dataset.raw);
+    options.onChange?.();
+    editor.dispatchEvent?.(new Event("terrychange", { bubbles: true }));
+    closePicker(state);
+  };
+
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "terry-h3-time-picker-confirm";
+  confirm.textContent = h3LocaleIsZh() ? "确定" : "Apply";
+  confirm.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); apply(); });
+  const onKey = (event) => {
+    event.stopPropagation();
+    if (event.key === "Enter") { event.preventDefault(); apply(); }
+    else if (event.key === "Escape") { event.preventDefault(); closePicker(state); }
+  };
+  minutes.addEventListener("keydown", onKey);
+  seconds.addEventListener("keydown", onKey);
+  row.append(confirm);
+  menu.append(row);
+  document.body.append(menu);
+  state.menu = menu;
+
+  const rect = chip.getBoundingClientRect();
+  const width = 230;
+  const left = Math.max(8, Math.min(rect.left, (window.innerWidth || 1280) - width - 8));
+  let top = rect.bottom + 6;
+  if (top + 100 > (window.innerHeight || 720) - 8) top = Math.max(8, rect.top - 106);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+
+  const abort = new AbortController();
+  state.abort = abort;
+  setTimeout(() => document.addEventListener("pointerdown", (event) => {
+    if (!menu.contains(event.target) && !chip.contains(event.target)) closePicker(state);
+  }, { capture: true, signal: abort.signal }), 0);
+  setTimeout(() => { minutes.focus(); minutes.select(); }, 0);
+}
+
 function openCameraPicker(editor, chip, options, state) {
   closePicker(state);
   const menu = document.createElement("div");
@@ -544,10 +618,11 @@ export function bindH3TagInteractions(editor, options = {}) {
     const chip = event.target?.closest?.(".terry-h3-chip");
     if (!chip || !editor.contains(chip)) return;
     const type = h3TokenType(chip.dataset.raw);
-    if (type !== "shot" && type !== "speaker" && type !== "camera") return;
+    if (type !== "shot" && type !== "speaker" && type !== "time" && type !== "camera") return;
     event.preventDefault();
     event.stopPropagation();
     if (type === "camera") openCameraPicker(editor, chip, options, state);
+    else if (type === "time") openTimePicker(editor, chip, options, state);
     else openNumberPicker(editor, chip, type, options, state);
   });
   editor.addEventListener("keydown", (event) => deleteAdjacentTag(editor, event, options));
@@ -570,12 +645,13 @@ export function installH3RichTextStyles() {
 .terry-h3-type-camera{background:rgba(102,164,255,.13)!important;color:rgb(185,217,255)!important;box-shadow:inset 0 0 0 1px rgba(102,164,255,.25)!important;cursor:pointer!important}
 .terry-h3-type-dialogue{background:rgba(0,226,187,.13)!important;color:rgb(190,255,244)!important;box-shadow:inset 0 0 0 1px rgba(0,226,187,.22)!important}
 .terry-h3-type-retention{background:rgba(145,155,175,.12)!important;color:rgb(220,225,235)!important;box-shadow:inset 0 0 0 1px rgba(170,180,200,.2)!important}
-.terry-h3-type-time{background:rgba(110,190,255,.1)!important;color:rgb(196,229,255)!important;box-shadow:inset 0 0 0 1px rgba(110,190,255,.2)!important}
+.terry-h3-type-time{background:rgba(110,190,255,.1)!important;color:rgb(196,229,255)!important;box-shadow:inset 0 0 0 1px rgba(110,190,255,.2)!important;cursor:pointer!important}
 .terry-h3-type-transition{background:rgba(255,145,95,.11)!important;color:rgb(255,213,191)!important;box-shadow:inset 0 0 0 1px rgba(255,145,95,.22)!important}
 .terry-h3-type-task{background:rgba(128,205,125,.11)!important;color:rgb(207,245,205)!important;box-shadow:inset 0 0 0 1px rgba(128,205,125,.22)!important}
 .terry-h3-dialogue-editor{white-space:normal!important}.terry-h3-dialogue-language{height:22px;min-width:66px;max-width:92px;padding:0 4px;border:1px solid rgba(255,255,255,.12)!important;border-radius:4px;outline:none;background:#24272d!important;color:#d8dde6!important;color-scheme:dark;font:10px/1 system-ui,sans-serif;cursor:pointer}.terry-h3-dialogue-language option{color:#d8dde6!important;background:#24272d!important}.terry-h3-dialogue-text{outline:none;min-width:72px;max-width:360px;white-space:normal}
 .terry-h3-number-picker{position:fixed;z-index:10140;width:230px;padding:7px;border:1px solid rgba(255,255,255,.15);border-radius:9px;background:var(--comfy-menu-bg,#202225);box-shadow:0 16px 38px rgba(0,0,0,.48);color:var(--input-text,#ddd)}
 .terry-h3-number-picker-head{padding:3px 4px 7px;font:600 11px/1.2 system-ui,sans-serif;opacity:.75}.terry-h3-number-picker-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:4px}.terry-h3-number-picker-grid button{height:28px;border:0;border-radius:5px;background:rgba(255,255,255,.06);color:inherit;cursor:pointer}.terry-h3-number-picker-grid button:hover,.terry-h3-number-picker-grid button.is-current{background:rgba(255,215,75,.2);color:rgb(255,236,166)}
+.terry-h3-time-picker-row{display:flex;align-items:center;gap:6px}.terry-h3-time-picker-row input{width:58px;height:28px;box-sizing:border-box;border:1px solid rgba(255,255,255,.14);border-radius:5px;background:rgba(255,255,255,.06);color:inherit;text-align:center;outline:none}.terry-h3-time-picker-row input:focus{border-color:rgba(110,190,255,.6)}.terry-h3-time-picker-row>span{font-weight:700;opacity:.7}.terry-h3-time-picker-confirm{height:28px;padding:0 10px;border:0;border-radius:5px;background:rgba(110,190,255,.18);color:inherit;cursor:pointer}.terry-h3-time-picker-confirm:hover{background:rgba(110,190,255,.28)}
 .terry-h3-camera-picker{width:260px}.terry-h3-camera-picker-list{display:flex;flex-direction:column;gap:3px;max-height:330px;overflow-y:auto}.terry-h3-camera-picker-list button{display:flex;align-items:center;justify-content:space-between;min-height:28px;padding:4px 7px;border:0;border-radius:5px;background:rgba(255,255,255,.05);color:inherit;font:11px/1.2 system-ui,sans-serif;cursor:pointer}.terry-h3-camera-picker-list button small{font-size:10px;opacity:.56}.terry-h3-camera-picker-list button:hover,.terry-h3-camera-picker-list button.is-current{background:rgba(102,164,255,.2);color:rgb(185,217,255)}
 `;
   document.head.append(style);
