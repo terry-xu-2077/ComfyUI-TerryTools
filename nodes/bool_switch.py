@@ -13,7 +13,7 @@ class BoolSwitch(io.ComfyNode):
             category="TerryTools/线束整理",
             description="使用布尔值在两路任意同类型输入之间切换，可通过 Terry 远程控制器按频道控制。",
             inputs=[
-                io.Bool.Input(
+                io.Boolean.Input(
                     "enabled",
                     display_name="切换",
                     default=False,
