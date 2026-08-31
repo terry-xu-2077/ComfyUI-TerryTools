@@ -114,17 +114,10 @@ function bindSubject(node, asset, number) {
   map[asset.key] = list;
   app.graph?.change?.();
 }
-function createSubjectForAsset(node, mode, asset) {
-  const number = nextSubject(node, mode);
-  bindSubject(node, asset, number);
-  return number;
+function subjectSources(node, mode, number) {
+  return assets(node, mode).filter((asset) => boundSubjects(node, asset).includes(Number(number)));
 }
 function isDirectUsed(node, mode, asset) { return new RegExp(`<${asset.label.replace(/\s+/g, "\\s+")}>`, "i").test(promptText(node, mode)); }
-function definitionParts(node, mode, asset) {
-  const parts = boundSubjects(node, asset).map((n) => `主体 ${n}`);
-  if (isDirectUsed(node, mode, asset)) parts.push(asset.displayLabel);
-  return parts;
-}
 function cleanDefinition(text) { return String(text || "").replace(/\r\n?/g, "\n").replace(/^[\s:：,，.。;；-]+/, "").replace(/\s+/g, " ").trim(); }
 function definitionMap(node, mode) {
   const source = promptText(node, mode).replace(/\r\n?/g, "\n");
@@ -136,13 +129,6 @@ function definitionMap(node, mode) {
     if (description) map.set(key, description);
   }
   return map;
-}
-function referencedDescription(node, mode, asset, definitions) {
-  const subjectDescriptions = boundSubjects(node, asset)
-    .map((n) => definitions.get(`subject:${n}`) || `主体 ${n}`)
-    .filter(Boolean);
-  const direct = definitions.get(`${asset.kind}:${asset.index}`);
-  return [...subjectDescriptions, direct].filter(Boolean).join(" · ") || definitionParts(node, mode, asset).join(" · ");
 }
 function caretRange(editor, trigger) {
   const selection = window.getSelection?.();
@@ -211,23 +197,22 @@ function closeMenu(controller) { controller.menu?.remove?.(); controller.menu = 
 function currentFilter(node) { return String(node?.properties?.[FILTER_PROP] || "subject"); }
 function setFilter(node, value) { node.properties ||= {}; node.properties[FILTER_PROP] = value; app.graph?.change?.(); }
 function insertMediaReference(controller, hit, asset) { insertAt(controller.editor, hit.range, createToken(controller, asset.raw, asset), controller.onChange); closeMenu(controller); }
-function insertSubjectReference(controller, hit, asset, subjectNumber) {
+function insertSubjectToken(controller, hit, subjectNumber) {
+  const number = Number(subjectNumber);
+  if (!Number.isFinite(number)) return;
+  insertAt(controller.editor, hit.range, createToken(controller, `<Subject ${number}>`), controller.onChange);
+  closeMenu(controller);
+}
+function insertSubjectWithSource(controller, hit, asset, subjectNumber) {
   const number = Number(subjectNumber);
   if (!Number.isFinite(number)) return;
   bindSubject(controller.node, asset, number);
-  insertAt(controller.editor, hit.range, createToken(controller, `<Subject ${number}>`), controller.onChange);
-  controller.node?.__terryH3RefreshSubjectThumbnails?.();
-  closeMenu(controller);
+  insertSubjectToken(controller, hit, number);
 }
 function assetRoleDetail(asset) {
   if (asset.kind === "picture") return "仅当图片本身作为首帧、关键帧、末帧、编辑关键帧、构图或 Storyboard 锚点时使用";
   if (asset.kind === "video") return "用于被直接编辑/续写的视频源，或提供整段镜头、剪辑、节奏与时序结构";
   return "用于复制或参考音频信号、音色、节奏、对白、歌词、音效或连续性";
-}
-function subjectRoleDetail(asset) {
-  return asset.kind === "picture"
-    ? "从图片中抽象人物、物体、场景、服装、风格、姿态等可见内容"
-    : "从视频中抽象人物、物体、场景、动作、特效等可见内容；不是把整段视频当 Subject";
 }
 function makeAssetRow(asset, metaText, onClick, extraClass = "") {
   const row = document.createElement("div");
@@ -244,40 +229,47 @@ function makeAssetRow(asset, metaText, onClick, extraClass = "") {
   row.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); onClick?.(event); });
   return row;
 }
-function openSubjectActionMenu(controller, hit, asset) {
+function makeSubjectRow(controller, hit, number, definitions, showSourceButton = true) {
+  const row = document.createElement("div");
+  row.className = "terry-h3-subject-row is-selectable";
+  const info = document.createElement("div"); info.className = "terry-h3-role-info";
+  const name = document.createElement("b"); name.textContent = `主体 ${number}`;
+  const sources = subjectSources(controller.node, controller.mode, number);
+  const sourceText = sources.length ? sources.map((asset) => asset.displayLabel).join("、") : "未关联参考来源";
+  const desc = definitions.get(`subject:${number}`) || "";
+  const meta = document.createElement("small"); meta.textContent = desc ? `${desc} · 来源：${sourceText}` : `来源：${sourceText}`;
+  info.append(name, meta);
+  row.append(info);
+  row.addEventListener("pointerdown", (event) => {
+    if (event.target?.closest?.("button")) return;
+    event.preventDefault(); event.stopPropagation(); insertSubjectToken(controller, hit, number);
+  });
+  if (showSourceButton) {
+    const manage = menuButton("来源", "管理此 Subject 的 Picture / Video 来源");
+    manage.classList.add("terry-h3-subject-source-button");
+    manage.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); openSubjectSourceMenu(controller, hit, number); });
+    row.append(manage);
+  }
+  return row;
+}
+function openSubjectSourceMenu(controller, hit, subjectNumber) {
   const menu = controller.menu;
   if (!menu) return;
   menu.replaceChildren();
   const head = document.createElement("div"); head.className = "terry-h3-role-legend";
   const title = document.createElement("div"); title.className = "terry-h3-role-title";
-  title.innerHTML = `<b>${asset.displayLabel} → 可见主体</b><span>Subject 是内容单元，不是资产编号</span>`;
+  title.innerHTML = `<b>主体 ${subjectNumber} · 选择参考来源</b><span>这里选择的是来源资产，不是 Subject 本身</span>`;
   head.append(title); menu.append(head);
-
-  const existing = boundSubjects(controller.node, asset);
-  for (const number of existing) {
-    const button = menuButton(`插入已有 主体 ${number}`, `再次使用 <Subject ${number}>`);
-    button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); insertSubjectReference(controller, hit, asset, number); });
-    menu.append(button);
+  const visualAssets = assets(controller.node, controller.mode).filter((asset) => asset.kind !== "audio");
+  const currentKeys = new Set(subjectSources(controller.node, controller.mode, subjectNumber).map((asset) => asset.key));
+  for (const asset of visualAssets) {
+    const prefix = currentKeys.has(asset.key) ? "已关联 · " : "";
+    menu.append(makeAssetRow(asset, `${prefix}${asset.displayLabel} · 作为主体 ${subjectNumber} 的参考来源`, () => insertSubjectWithSource(controller, hit, asset, subjectNumber), currentKeys.has(asset.key) ? "is-defined" : ""));
   }
-  const create = menuButton("＋ 从此资产创建新主体", "同一资产可以提供多个 Subject");
-  create.addEventListener("pointerdown", (event) => {
-    event.preventDefault(); event.stopPropagation();
-    const number = createSubjectForAsset(controller.node, controller.mode, asset);
-    insertSubjectReference(controller, hit, asset, number);
-  });
-  menu.append(create);
-
-  const otherSubjects = allSubjectNumbers(controller.node, controller.mode).filter((n) => !existing.includes(n));
-  if (otherSubjects.length) {
-    const divider = document.createElement("div"); divider.className = "terry-h3-role-subhead"; divider.textContent = "关联到已有主体（同一 Subject 可来自多个资产）"; menu.append(divider);
-    for (const number of otherSubjects) {
-      const desc = definitionMap(controller.node, controller.mode).get(`subject:${number}`) || `主体 ${number}`;
-      const button = menuButton(`主体 ${number}`, desc);
-      button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); insertSubjectReference(controller, hit, asset, number); });
-      menu.append(button);
-    }
+  if (!visualAssets.length) {
+    const empty = document.createElement("div"); empty.className = "terry-h3-role-empty"; empty.textContent = "没有可作为 Subject 来源的图片或视频资产。"; menu.append(empty);
   }
-  const back = menuButton("‹ 返回资产列表");
+  const back = menuButton("‹ 返回主体列表");
   back.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); openAssetMenu(controller); });
   menu.append(back);
   placeMenu(menu, controller.editor, 470, 560);
@@ -288,12 +280,10 @@ function openAssetMenu(controller) {
   const hit = caretRange(editor, "@");
   if (!hit) { closeMenu(controller); return false; }
   closeMenu(controller);
-  const all = assets(node, mode).filter((asset) => !hit.query || `${asset.name} ${asset.label} ${asset.displayLabel} ${asset.kind}`.toLowerCase().includes(hit.query));
-  const defined = all.filter((asset) => definitionParts(node, mode, asset).length > 0);
+  const allAssets = assets(node, mode);
   const definitions = definitionMap(node, mode);
   let filter = currentFilter(node);
   if (!new Set(["subject", "asset", "defined"]).has(filter)) filter = "subject";
-  if (filter === "defined" && !defined.length) filter = "subject";
 
   const menu = document.createElement("div");
   menu.className = "terry-h3-role-menu terry-h3-shared-module-menu";
@@ -302,7 +292,7 @@ function openAssetMenu(controller) {
   document.body.append(menu);
   const legend = document.createElement("div"); legend.className = "terry-h3-role-legend";
   const title = document.createElement("div"); title.className = "terry-h3-role-title";
-  title.innerHTML = "<b>引用参考</b><span>按官方 H3 区分内容主体与源资产角色</span>";
+  title.innerHTML = "<b>引用参考</b><span>Subject 是内容单元；Picture / Video / Audio 是来源资产</span>";
   const tabs = document.createElement("div"); tabs.className = "terry-h3-role-tabs";
   const addTab = (value, label) => {
     const button = menuButton(label, "", filter === value ? "is-active" : "");
@@ -311,33 +301,47 @@ function openAssetMenu(controller) {
   };
   addTab("subject", "可见主体");
   addTab("asset", "资产本身");
-  if (defined.length) addTab("defined", "已建立引用");
+  addTab("defined", "已建立引用");
   legend.append(title, tabs); menu.append(legend);
 
-  let visible = all;
-  if (filter === "subject") visible = all.filter((asset) => asset.kind !== "audio");
-  else if (filter === "defined") visible = defined;
-
-  for (const asset of visible) {
-    if (filter === "subject") {
-      menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${subjectRoleDetail(asset)}`, () => openSubjectActionMenu(controller, hit, asset)));
-      continue;
+  if (filter === "subject") {
+    const subjects = allSubjectNumbers(node, mode).filter((number) => {
+      if (!hit.query) return true;
+      const desc = definitions.get(`subject:${number}`) || "";
+      const sourceText = subjectSources(node, mode, number).map((asset) => `${asset.name} ${asset.displayLabel}`).join(" ");
+      return `主体 ${number} subject ${number} ${desc} ${sourceText}`.toLowerCase().includes(hit.query);
+    });
+    for (const number of subjects) menu.append(makeSubjectRow(controller, hit, number, definitions));
+    const create = menuButton("＋ 新建主体", "先创建逻辑 Subject，再选择 Picture / Video 作为参考来源");
+    create.addEventListener("pointerdown", (event) => {
+      event.preventDefault(); event.stopPropagation();
+      const number = nextSubject(node, mode);
+      openSubjectSourceMenu(controller, hit, number);
+    });
+    menu.append(create);
+    if (!subjects.length) {
+      const empty = document.createElement("div"); empty.className = "terry-h3-role-empty"; empty.textContent = "还没有 Subject。新建主体后选择图片或视频作为它的参考来源。"; menu.append(empty);
     }
-    if (filter === "asset") {
-      menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${assetRoleDetail(asset)}`, () => insertMediaReference(controller, hit, asset)));
-      continue;
+  } else if (filter === "asset") {
+    const visible = allAssets.filter((asset) => !hit.query || `${asset.name} ${asset.label} ${asset.displayLabel} ${asset.kind}`.toLowerCase().includes(hit.query));
+    for (const asset of visible) menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${assetRoleDetail(asset)}`, () => insertMediaReference(controller, hit, asset)));
+    if (!visible.length) {
+      const empty = document.createElement("div"); empty.className = "terry-h3-role-empty"; empty.textContent = "没有匹配的参考资产。"; menu.append(empty);
     }
-    const rel = referencedDescription(node, mode, asset, definitions);
-    menu.append(makeAssetRow(asset, rel || `${asset.displayLabel} 已建立引用关系`, () => {
-      const subjects = boundSubjects(node, asset);
-      if (subjects.length) openSubjectActionMenu(controller, hit, asset);
-      else insertMediaReference(controller, hit, asset);
-    }, "is-defined"));
-  }
-  if (!visible.length) {
-    const empty = document.createElement("div"); empty.className = "terry-h3-role-empty";
-    empty.textContent = filter === "subject" ? "没有可用于创建可见 Subject 的图片或视频资产。" : "没有匹配的参考资产。";
-    menu.append(empty);
+  } else {
+    const subjects = allSubjectNumbers(node, mode).filter((number) => subjectSources(node, mode, number).length || definitions.has(`subject:${number}`));
+    if (subjects.length) {
+      const subhead = document.createElement("div"); subhead.className = "terry-h3-role-subhead"; subhead.textContent = "Subject 内容单元"; menu.append(subhead);
+      for (const number of subjects) menu.append(makeSubjectRow(controller, hit, number, definitions));
+    }
+    const directAssets = allAssets.filter((asset) => isDirectUsed(node, mode, asset));
+    if (directAssets.length) {
+      const subhead = document.createElement("div"); subhead.className = "terry-h3-role-subhead"; subhead.textContent = "直接使用的资产标签"; menu.append(subhead);
+      for (const asset of directAssets) menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${assetRoleDetail(asset)}`, () => insertMediaReference(controller, hit, asset), "is-defined"));
+    }
+    if (!subjects.length && !directAssets.length) {
+      const empty = document.createElement("div"); empty.className = "terry-h3-role-empty"; empty.textContent = "还没有建立 Subject 来源或直接资产引用。"; menu.append(empty);
+    }
   }
   placeMenu(menu, editor, 470, 560);
   return true;
@@ -477,6 +481,7 @@ export function installH3MenuStyles() {
 .terry-h3-role-tabs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.terry-h3-role-action{display:block;width:auto;min-height:28px;margin:5px 2px;padding:3px 9px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(255,255,255,.05);color:inherit;cursor:pointer;font-size:11px;white-space:nowrap}.terry-h3-role-tabs .terry-h3-role-action{display:inline-block;margin:0}.terry-h3-role-action.is-active{border-color:rgba(0,226,187,.38);background:rgba(0,226,187,.12);color:rgba(205,255,246,.98)}
 .terry-h3-role-subhead{padding:10px 4px 4px;font-size:9.5px;opacity:.55}
 .terry-h3-role-row{display:grid;grid-template-columns:54px minmax(0,1fr);gap:10px;align-items:center;padding:9px 7px;border-bottom:1px solid rgba(255,255,255,.055);border-radius:7px}.terry-h3-role-row.is-selectable{cursor:pointer}.terry-h3-role-row.is-selectable:hover{background:rgba(255,255,255,.07)}.terry-h3-role-thumb{width:52px;height:52px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.07);display:grid;place-items:center}.terry-h3-role-thumb img{width:100%;height:100%;object-fit:cover}.terry-h3-role-info{min-width:0}.terry-h3-role-info b,.terry-h3-role-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.terry-h3-role-info b{font-size:11px}.terry-h3-role-info small{margin-top:3px;font-size:9.5px;opacity:.52;white-space:normal;line-height:1.35}.terry-h3-role-row.is-defined .terry-h3-role-info small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.terry-h3-role-empty{padding:18px 8px;text-align:center;font-size:11px;opacity:.55}
+.terry-h3-subject-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 7px;border-bottom:1px solid rgba(255,255,255,.055);border-radius:7px}.terry-h3-subject-row.is-selectable{cursor:pointer}.terry-h3-subject-row.is-selectable:hover{background:rgba(255,255,255,.07)}.terry-h3-subject-source-button{margin:0!important;min-width:44px!important}
 .terry-h3-command-menu{width:340px;max-height:380px;overflow:auto;padding:6px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:var(--comfy-menu-bg,#17191c);box-shadow:0 18px 48px rgba(0,0,0,.52)}
 .terry-h3-command-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 6px 8px;border-bottom:1px solid rgba(255,255,255,.08)}.terry-h3-command-head-title{display:flex;align-items:center;gap:5px}.terry-h3-command-head span{font-size:9px;opacity:.48}.terry-h3-command-back{border:0;background:transparent;color:inherit;font-size:18px;cursor:pointer}.terry-h3-command-item{display:grid;grid-template-columns:70px minmax(0,1fr);gap:7px;align-items:center;width:100%;padding:7px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:left;cursor:pointer}.terry-h3-command-item.is-category{grid-template-columns:28px minmax(0,1fr) auto}.terry-h3-command-item.is-active{background:rgba(255,255,255,.09)}.terry-h3-command-category,.terry-h3-command-category-icon,.terry-h3-command-count{font-size:9px;opacity:.55}.terry-h3-command-text{min-width:0}.terry-h3-command-text b,.terry-h3-command-text small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.terry-h3-command-text b{font-size:11px}.terry-h3-command-text small{margin-top:2px;font-size:9px;opacity:.5}
 `;
