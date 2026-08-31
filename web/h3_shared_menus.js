@@ -89,26 +89,39 @@ function bindings(node) {
   if (!value || typeof value !== "object" || Array.isArray(value)) node.properties[BINDINGS_PROP] = {};
   return node.properties[BINDINGS_PROP];
 }
-function nextSubject(node, mode) {
+function allSubjectNumbers(node, mode) {
   const used = new Set();
   for (const match of promptText(node, mode).matchAll(/<Subject\s+(\d+)>/gi)) used.add(Number(match[1]));
-  for (const list of Object.values(bindings(node))) for (const n of Array.isArray(list) ? list : []) used.add(Number(n));
+  for (const list of Object.values(bindings(node))) for (const n of Array.isArray(list) ? list : []) if (Number.isFinite(Number(n))) used.add(Number(n));
+  return [...used].filter(Number.isFinite).sort((a, b) => a - b);
+}
+function nextSubject(node, mode) {
+  const used = new Set(allSubjectNumbers(node, mode));
   let n = 1;
   while (used.has(n)) n += 1;
   return n;
 }
-function subjectFor(node, mode, asset) {
+function boundSubjects(node, asset) {
+  const list = bindings(node)[asset.key];
+  return Array.isArray(list) ? [...new Set(list.map(Number).filter(Number.isFinite))].sort((a, b) => a - b) : [];
+}
+function bindSubject(node, asset, number) {
+  number = Number(number);
+  if (!Number.isFinite(number) || number < 1) return;
   const map = bindings(node);
-  map[asset.key] ||= [];
-  if (map[asset.key][0]) return Number(map[asset.key][0]);
-  const n = nextSubject(node, mode);
-  map[asset.key].push(n);
+  const list = Array.isArray(map[asset.key]) ? map[asset.key] : [];
+  if (!list.map(Number).includes(number)) list.push(number);
+  map[asset.key] = list;
   app.graph?.change?.();
-  return n;
+}
+function createSubjectForAsset(node, mode, asset) {
+  const number = nextSubject(node, mode);
+  bindSubject(node, asset, number);
+  return number;
 }
 function isDirectUsed(node, mode, asset) { return new RegExp(`<${asset.label.replace(/\s+/g, "\\s+")}>`, "i").test(promptText(node, mode)); }
 function definitionParts(node, mode, asset) {
-  const parts = (bindings(node)[asset.key] || []).map((n) => `主体 ${Number(n)}`).filter((x) => !x.endsWith("NaN"));
+  const parts = boundSubjects(node, asset).map((n) => `主体 ${n}`);
   if (isDirectUsed(node, mode, asset)) parts.push(asset.displayLabel);
   return parts;
 }
@@ -125,12 +138,11 @@ function definitionMap(node, mode) {
   return map;
 }
 function referencedDescription(node, mode, asset, definitions) {
-  for (const n of bindings(node)[asset.key] || []) {
-    const description = definitions.get(`subject:${Number(n)}`);
-    if (description) return description;
-  }
-  const direct = definitions.get(`${asset.kind}:${asset.index}`) || definitions.get(`${asset.kind === "picture" ? "picture" : asset.kind}:${asset.index}`);
-  return direct || definitionParts(node, mode, asset).join(" · ");
+  const subjectDescriptions = boundSubjects(node, asset)
+    .map((n) => definitions.get(`subject:${n}`) || `主体 ${n}`)
+    .filter(Boolean);
+  const direct = definitions.get(`${asset.kind}:${asset.index}`);
+  return [...subjectDescriptions, direct].filter(Boolean).join(" · ") || definitionParts(node, mode, asset).join(" · ");
 }
 function caretRange(editor, trigger) {
   const selection = window.getSelection?.();
@@ -199,11 +211,76 @@ function closeMenu(controller) { controller.menu?.remove?.(); controller.menu = 
 function currentFilter(node) { return String(node?.properties?.[FILTER_PROP] || "subject"); }
 function setFilter(node, value) { node.properties ||= {}; node.properties[FILTER_PROP] = value; app.graph?.change?.(); }
 function insertMediaReference(controller, hit, asset) { insertAt(controller.editor, hit.range, createToken(controller, asset.raw, asset), controller.onChange); closeMenu(controller); }
-function insertSubjectReference(controller, hit, asset, subjectNumber = null) {
-  const number = Number(subjectNumber) || subjectFor(controller.node, controller.mode, asset);
+function insertSubjectReference(controller, hit, asset, subjectNumber) {
+  const number = Number(subjectNumber);
+  if (!Number.isFinite(number)) return;
+  bindSubject(controller.node, asset, number);
   insertAt(controller.editor, hit.range, createToken(controller, `<Subject ${number}>`), controller.onChange);
   controller.node?.__terryH3RefreshSubjectThumbnails?.();
   closeMenu(controller);
+}
+function assetRoleDetail(asset) {
+  if (asset.kind === "picture") return "仅当图片本身作为首帧、关键帧、末帧、编辑关键帧、构图或 Storyboard 锚点时使用";
+  if (asset.kind === "video") return "用于被直接编辑/续写的视频源，或提供整段镜头、剪辑、节奏与时序结构";
+  return "用于复制或参考音频信号、音色、节奏、对白、歌词、音效或连续性";
+}
+function subjectRoleDetail(asset) {
+  return asset.kind === "picture"
+    ? "从图片中抽象人物、物体、场景、服装、风格、姿态等可见内容"
+    : "从视频中抽象人物、物体、场景、动作、特效等可见内容；不是把整段视频当 Subject";
+}
+function makeAssetRow(asset, metaText, onClick, extraClass = "") {
+  const row = document.createElement("div");
+  row.className = `terry-h3-role-row is-selectable${extraClass ? ` ${extraClass}` : ""}`;
+  const thumb = document.createElement("div");
+  thumb.className = `terry-h3-role-thumb is-${asset.kind}`;
+  if (asset.preview && asset.kind !== "audio") {
+    const img = document.createElement("img"); img.src = asset.preview; img.alt = ""; thumb.append(img);
+  } else thumb.textContent = asset.kind === "audio" ? "♪" : asset.kind === "video" ? "▶" : "▧";
+  const info = document.createElement("div"); info.className = "terry-h3-role-info";
+  const name = document.createElement("b"); name.textContent = asset.name;
+  const meta = document.createElement("small"); meta.textContent = metaText;
+  info.append(name, meta); row.append(thumb, info);
+  row.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); onClick?.(event); });
+  return row;
+}
+function openSubjectActionMenu(controller, hit, asset) {
+  const menu = controller.menu;
+  if (!menu) return;
+  menu.replaceChildren();
+  const head = document.createElement("div"); head.className = "terry-h3-role-legend";
+  const title = document.createElement("div"); title.className = "terry-h3-role-title";
+  title.innerHTML = `<b>${asset.displayLabel} → 可见主体</b><span>Subject 是内容单元，不是资产编号</span>`;
+  head.append(title); menu.append(head);
+
+  const existing = boundSubjects(controller.node, asset);
+  for (const number of existing) {
+    const button = menuButton(`插入已有 主体 ${number}`, `再次使用 <Subject ${number}>`);
+    button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); insertSubjectReference(controller, hit, asset, number); });
+    menu.append(button);
+  }
+  const create = menuButton("＋ 从此资产创建新主体", "同一资产可以提供多个 Subject");
+  create.addEventListener("pointerdown", (event) => {
+    event.preventDefault(); event.stopPropagation();
+    const number = createSubjectForAsset(controller.node, controller.mode, asset);
+    insertSubjectReference(controller, hit, asset, number);
+  });
+  menu.append(create);
+
+  const otherSubjects = allSubjectNumbers(controller.node, controller.mode).filter((n) => !existing.includes(n));
+  if (otherSubjects.length) {
+    const divider = document.createElement("div"); divider.className = "terry-h3-role-subhead"; divider.textContent = "关联到已有主体（同一 Subject 可来自多个资产）"; menu.append(divider);
+    for (const number of otherSubjects) {
+      const desc = definitionMap(controller.node, controller.mode).get(`subject:${number}`) || `主体 ${number}`;
+      const button = menuButton(`主体 ${number}`, desc);
+      button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); insertSubjectReference(controller, hit, asset, number); });
+      menu.append(button);
+    }
+  }
+  const back = menuButton("‹ 返回资产列表");
+  back.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); openAssetMenu(controller); });
+  menu.append(back);
+  placeMenu(menu, controller.editor, 470, 560);
 }
 
 function openAssetMenu(controller) {
@@ -215,7 +292,7 @@ function openAssetMenu(controller) {
   const defined = all.filter((asset) => definitionParts(node, mode, asset).length > 0);
   const definitions = definitionMap(node, mode);
   let filter = currentFilter(node);
-  if (!new Set(["subject", "picture", "defined"]).has(filter)) filter = "subject";
+  if (!new Set(["subject", "asset", "defined"]).has(filter)) filter = "subject";
   if (filter === "defined" && !defined.length) filter = "subject";
 
   const menu = document.createElement("div");
@@ -223,58 +300,43 @@ function openAssetMenu(controller) {
   controller.menu = menu;
   controller.menuType = "asset";
   document.body.append(menu);
-  const legend = document.createElement("div");
-  legend.className = "terry-h3-role-legend";
-  const title = document.createElement("div");
-  title.className = "terry-h3-role-title";
-  title.innerHTML = "<b>引用参考</b><span>选择资产在 H3 中的使用方式</span>";
-  const tabs = document.createElement("div");
-  tabs.className = "terry-h3-role-tabs";
+  const legend = document.createElement("div"); legend.className = "terry-h3-role-legend";
+  const title = document.createElement("div"); title.className = "terry-h3-role-title";
+  title.innerHTML = "<b>引用参考</b><span>按官方 H3 区分内容主体与源资产角色</span>";
+  const tabs = document.createElement("div"); tabs.className = "terry-h3-role-tabs";
   const addTab = (value, label) => {
     const button = menuButton(label, "", filter === value ? "is-active" : "");
-    button.addEventListener("pointerdown", (event) => {
-      event.preventDefault(); event.stopPropagation();
-      setFilter(node, value);
-      controller.savedRange = hit.range.cloneRange();
-      queueMicrotask(() => openAssetMenu(controller));
-    });
+    button.addEventListener("pointerdown", (event) => { event.preventDefault(); event.stopPropagation(); setFilter(node, value); queueMicrotask(() => openAssetMenu(controller)); });
     tabs.append(button);
   };
-  addTab("subject", "主体参考");
-  addTab("picture", "画面参考");
-  if (defined.length) addTab("defined", "已引用参考");
-  legend.append(title, tabs);
-  menu.append(legend);
+  addTab("subject", "可见主体");
+  addTab("asset", "资产本身");
+  if (defined.length) addTab("defined", "已建立引用");
+  legend.append(title, tabs); menu.append(legend);
 
-  const visible = filter === "defined" ? defined : filter === "subject" ? all.filter((asset) => asset.kind !== "audio") : all;
+  let visible = all;
+  if (filter === "subject") visible = all.filter((asset) => asset.kind !== "audio");
+  else if (filter === "defined") visible = defined;
+
   for (const asset of visible) {
-    const row = document.createElement("div");
-    row.className = `terry-h3-role-row is-selectable${filter === "defined" ? " is-defined" : ""}`;
-    const thumb = document.createElement("div");
-    thumb.className = `terry-h3-role-thumb is-${asset.kind}`;
-    if (asset.preview && asset.kind !== "audio") {
-      const img = document.createElement("img"); img.src = asset.preview; img.alt = ""; thumb.append(img);
-    } else thumb.textContent = asset.kind === "audio" ? "♪" : asset.kind === "video" ? "▶" : "▧";
-    const info = document.createElement("div"); info.className = "terry-h3-role-info";
-    const name = document.createElement("b"); name.textContent = asset.name;
-    const meta = document.createElement("small");
-    meta.textContent = filter === "defined" ? referencedDescription(node, mode, asset, definitions) : `${asset.kind === "picture" ? "图片" : asset.kind === "video" ? "视频" : "音频"}资产 · ${asset.displayLabel}`;
-    info.append(name, meta);
-    row.append(thumb, info);
-    row.addEventListener("pointerdown", (event) => {
-      event.preventDefault(); event.stopPropagation();
-      if (filter === "subject") return insertSubjectReference(controller, hit, asset);
-      if (filter === "picture") return insertMediaReference(controller, hit, asset);
-      const subjectNumber = (bindings(node)[asset.key] || []).map(Number).find(Number.isFinite);
-      if (subjectNumber) insertSubjectReference(controller, hit, asset, subjectNumber);
+    if (filter === "subject") {
+      menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${subjectRoleDetail(asset)}`, () => openSubjectActionMenu(controller, hit, asset)));
+      continue;
+    }
+    if (filter === "asset") {
+      menu.append(makeAssetRow(asset, `${asset.displayLabel} · ${assetRoleDetail(asset)}`, () => insertMediaReference(controller, hit, asset)));
+      continue;
+    }
+    const rel = referencedDescription(node, mode, asset, definitions);
+    menu.append(makeAssetRow(asset, rel || `${asset.displayLabel} 已建立引用关系`, () => {
+      const subjects = boundSubjects(node, asset);
+      if (subjects.length) openSubjectActionMenu(controller, hit, asset);
       else insertMediaReference(controller, hit, asset);
-    });
-    menu.append(row);
+    }, "is-defined"));
   }
   if (!visible.length) {
-    const empty = document.createElement("div");
-    empty.className = "terry-h3-role-empty";
-    empty.textContent = "没有匹配的参考资产。";
+    const empty = document.createElement("div"); empty.className = "terry-h3-role-empty";
+    empty.textContent = filter === "subject" ? "没有可用于创建可见 Subject 的图片或视频资产。" : "没有匹配的参考资产。";
     menu.append(empty);
   }
   placeMenu(menu, editor, 470, 560);
@@ -287,17 +349,14 @@ function defaultDialogueLanguage() {
   let locale = "en";
   try { locale = app?.ui?.settings?.getSettingValue?.("Comfy.Locale") || document?.documentElement?.lang || navigator.language || locale; } catch {}
   const code = String(locale).trim().toLowerCase().replaceAll("_", "-").split("-")[0];
-  return {
-    ar: "Arabic", de: "German", en: "English", es: "Spanish", fr: "French", hi: "Hindi", id: "Indonesian", it: "Italian", ja: "Japanese", ko: "Korean",
-    nl: "Dutch", pl: "Polish", pt: "Portuguese", ru: "Russian", th: "Thai", tr: "Turkish", vi: "Vietnamese", yue: "Cantonese", zh: "Chinese",
-  }[code] || "English";
+  return { ar: "Arabic", de: "German", en: "English", es: "Spanish", fr: "French", hi: "Hindi", id: "Indonesian", it: "Italian", ja: "Japanese", ko: "Korean", nl: "Dutch", pl: "Polish", pt: "Portuguese", ru: "Russian", th: "Thai", tr: "Turkish", vi: "Vietnamese", yue: "Cantonese", zh: "Chinese" }[code] || "English";
 }
 function commands(node, mode) {
   const shot = nextShot(node, mode), speaker = nextSpeaker(node, mode);
   const list = [
-    { category: "structure", label: "subject_definitions", detail: "定义 Subject / Picture / Video / Audio 的引用角色", raw: "subject_definitions:" },
+    { category: "structure", label: "subject_definitions", detail: "定义 Subject 内容单元，以及必要的 Picture / Video / Audio 资产角色", raw: "subject_definitions:" },
     { category: "structure", label: "summary", detail: "任务类型与主要引用关系摘要", raw: "summary:" },
-    { category: "structure", label: "retention_analysis", detail: "逐项说明引用内容如何被保留或迁移", raw: "retention_analysis:" },
+    { category: "structure", label: "retention_analysis", detail: "逐项说明引用内容如何被保留、迁移、复制或参考", raw: "retention_analysis:" },
     { category: "structure", label: "detailed_description", detail: "逐镜头详细描述", raw: "detailed_description:" },
     { category: "structure", label: "integrated_multimodal_description", detail: "T2VA / I2VA / FL2VA / L2VA 主字段", raw: "integrated_multimodal_description:" },
     { category: "structure", label: "overall_soundscape", detail: "环境声、动作声与非语言人声汇总", raw: "overall_soundscape:" },
@@ -308,18 +367,15 @@ function commands(node, mode) {
     { category: "dialogue", label: "对白块", detail: "插入可编辑对白块", raw: `<d>[${defaultDialogueLanguage()}] </d>`, kind: "dialogue" },
     { category: "dialogue", label: "scenetrans", detail: "对白或音频跨镜头连续", raw: "<scenetrans>" },
     { category: "dialogue", label: "cutoff", detail: "对白被镜头或剪辑截断", raw: "<cutoff>" },
-    ...[["fully_preserved","定义的视觉引用角色被完整保留"],["partially_preserved","仍使用引用内容，但部分特征被改变"],["attribute_transfer","把引用特征迁移到另一个可识别主体"],["weak_reference","仅保留宽泛风格、类别、构图或氛围"],["fully_copy","完整复制源音频信号"],["partially_copy","只复制部分时间或音频层"],["reference","只参考音色、节奏、内容或声音质感"]].map(([raw, detail]) => ({ category: "retention", label: raw, detail, raw })),
-    ...[["reference generation","参考生成"],["keyframe completion","关键帧补全"],["video editing","直接编辑已有视频"],["video continuation","从已有视频继续生成"],["audio reuse","直接复用同一音频信号"],["audio reference","只参考音频特征而不复制信号"]].map(([raw, detail]) => ({ category: "task", label: raw, detail, raw: `[${raw}]` })),
+    ...[["fully_preserved","定义的视觉引用角色被完整保留"],["partially_preserved","仍使用引用内容，但部分定义特征被改变"],["attribute_transfer","把引用特征迁移到另一个可识别主体"],["weak_reference","仅保留宽泛风格、类别、构图或氛围"],["fully_copy","完整复制源音频信号"],["partially_copy","只复制部分时间或音频层"],["reference","不复制信号，仅参考音色、节奏、内容或声音质感"]].map(([raw, detail]) => ({ category: "retention", label: raw, detail, raw })),
+    ...[["reference generation","参考生成"],["keyframe completion","图片作为具体首帧/关键帧/末帧等帧锚点"],["video editing","直接编辑已有视频"],["video continuation","从已有视频继续生成"],["audio reuse","直接复用同一音频信号"],["audio reference","只参考音频特征而不复制信号"]].map(([raw, detail]) => ({ category: "task", label: raw, detail, raw: `[${raw}]` })),
     ...H3_CAMERA_COMMANDS.map(([chinese, english, detail, raw]) => ({ category: "camera", label: `${chinese} · ${english}`, detail, raw })),
   ];
   return mode === "timeline" ? list.filter((item) => !["shot-label", "timestamp"].includes(item.kind)) : list;
 }
 function category(id) { return id === "camera" ? CAMERA_META : CATEGORY_META.find((item) => item.id === id) || { id, label: id, icon: "›", detail: "" }; }
 function parentCategory(id) { return id === "camera" ? "shot" : null; }
-function categoryCount(id, list) {
-  if (id === "shot") return list.filter((item) => item.category === "shot" || item.category === "camera").length;
-  return list.filter((item) => item.category === id).length;
-}
+function categoryCount(id, list) { if (id === "shot") return list.filter((item) => item.category === "shot" || item.category === "camera").length; return list.filter((item) => item.category === id).length; }
 function categoryOptions(state) {
   if (!state.category) return CATEGORY_META.map((meta) => ({ type: "category", meta, count: categoryCount(meta.id, state.list) })).filter((item) => item.count > 0);
   if (state.category === "shot") {
@@ -332,7 +388,6 @@ function categoryOptions(state) {
 }
 function goBack(state) { state.category = parentCategory(state.category); state.active = 0; }
 function enterCategory(state, id) { state.category = id; state.active = 0; }
-
 function chooseCommand(controller, state, command) {
   const token = createToken(controller, command.raw || "");
   const content = command.defaultBody == null ? token : [token, document.createElement("br"), document.createTextNode(String(command.defaultBody))];
@@ -343,44 +398,26 @@ function chooseCommand(controller, state, command) {
   if (!body) return;
   body.focus?.({ preventScroll: true });
   const selection = window.getSelection?.();
-  if (selection) {
-    const range = document.createRange();
-    range.selectNodeContents(body);
-    range.collapse(false);
-    selection.removeAllRanges();
-    selection.addRange(range);
-  }
+  if (selection) { const range = document.createRange(); range.selectNodeContents(body); range.collapse(false); selection.removeAllRanges(); selection.addRange(range); }
 }
 function renderCommandMenu(controller, state) {
   const menu = controller.menu;
   if (!menu) return;
   menu.replaceChildren();
   const search = Boolean(state.query);
-  const head = document.createElement("div");
-  head.className = "terry-h3-command-head";
-  const title = document.createElement("div");
-  title.className = "terry-h3-command-head-title";
+  const head = document.createElement("div"); head.className = "terry-h3-command-head";
+  const title = document.createElement("div"); title.className = "terry-h3-command-head-title";
   if (state.category && !search) {
-    const back = document.createElement("button");
-    back.type = "button";
-    back.className = "terry-h3-command-back";
-    back.textContent = "‹";
-    back.addEventListener("pointerdown", (event) => { event.preventDefault(); goBack(state); renderCommandMenu(controller, state); });
-    title.append(back);
+    const back = document.createElement("button"); back.type = "button"; back.className = "terry-h3-command-back"; back.textContent = "‹";
+    back.addEventListener("pointerdown", (event) => { event.preventDefault(); goBack(state); renderCommandMenu(controller, state); }); title.append(back);
   }
-  const bold = document.createElement("b");
-  bold.textContent = search ? "搜索 H3 语法" : state.category ? category(state.category).label : "H3 语法";
-  title.append(bold);
-  const hint = document.createElement("span");
-  hint.textContent = search ? `“${state.query}”` : state.category ? "← 返回 · ↑↓ 选择" : "选择分类 · 也可继续输入关键词";
-  head.append(title, hint);
-  menu.append(head);
-
+  const bold = document.createElement("b"); bold.textContent = search ? "搜索 H3 语法" : state.category ? category(state.category).label : "H3 语法"; title.append(bold);
+  const hint = document.createElement("span"); hint.textContent = search ? `“${state.query}”` : state.category ? "← 返回 · ↑↓ 选择" : "选择分类 · 也可继续输入关键词";
+  head.append(title, hint); menu.append(head);
   state.options = search ? state.list.map((command) => ({ type: "command", command })) : categoryOptions(state);
   state.active = Math.min(state.active, Math.max(0, state.options.length - 1));
   state.options.forEach((option, index) => {
-    const item = document.createElement("button");
-    item.type = "button";
+    const item = document.createElement("button"); item.type = "button";
     item.className = `terry-h3-command-item${index === state.active ? " is-active" : ""}${option.type === "category" ? " is-category" : ""}`;
     if (option.type === "category") {
       const icon = document.createElement("span"); icon.className = "terry-h3-command-category-icon"; icon.textContent = option.meta.icon;
@@ -405,15 +442,10 @@ function openCommandMenu(controller) {
   closeMenu(controller);
   let list = commands(controller.node, controller.mode);
   if (hit.query) list = list.filter((item) => `${item.label} ${category(item.category).label} ${item.detail} ${item.raw}`.toLowerCase().includes(hit.query));
-  const menu = document.createElement("div");
-  menu.className = "terry-h3-command-menu terry-h3-shared-module-menu";
-  document.body.append(menu);
-  controller.menu = menu;
-  controller.menuType = "command";
-  const state = { range: hit.range, query: hit.query, category: null, active: 0, options: [], list };
-  controller.commandState = state;
-  renderCommandMenu(controller, state);
-  return true;
+  const menu = document.createElement("div"); menu.className = "terry-h3-command-menu terry-h3-shared-module-menu"; document.body.append(menu);
+  controller.menu = menu; controller.menuType = "command";
+  const state = { range: hit.range, query: hit.query, category: null, active: 0, options: [], list }; controller.commandState = state;
+  renderCommandMenu(controller, state); return true;
 }
 function refreshOpenMenu(controller) { if (controller.menuType === "asset") openAssetMenu(controller); else if (controller.menuType === "command") openCommandMenu(controller); }
 function handleCommandKey(controller, event) {
@@ -422,18 +454,12 @@ function handleCommandKey(controller, event) {
   if (event.key === "Escape") { closeMenu(controller); return true; }
   if (event.key === "ArrowLeft" && state.category && !state.query) { goBack(state); renderCommandMenu(controller, state); return true; }
   if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-    if (state.options.length) {
-      state.active = (state.active + (event.key === "ArrowDown" ? 1 : -1) + state.options.length) % state.options.length;
-      renderCommandMenu(controller, state);
-      controller.menu?.querySelector?.(".is-active")?.scrollIntoView?.({ block: "nearest" });
-    }
+    if (state.options.length) { state.active = (state.active + (event.key === "ArrowDown" ? 1 : -1) + state.options.length) % state.options.length; renderCommandMenu(controller, state); controller.menu?.querySelector?.(".is-active")?.scrollIntoView?.({ block: "nearest" }); }
     return true;
   }
   if (["ArrowRight", "Enter", "Tab"].includes(event.key)) {
-    const option = state.options[state.active];
-    if (!option) return false;
-    if (option.type === "category") { enterCategory(state, option.meta.id); renderCommandMenu(controller, state); }
-    else chooseCommand(controller, state, option.command);
+    const option = state.options[state.active]; if (!option) return false;
+    if (option.type === "category") { enterCategory(state, option.meta.id); renderCommandMenu(controller, state); } else chooseCommand(controller, state, option.command);
     return true;
   }
   return false;
@@ -442,15 +468,15 @@ function handleCommandKey(controller, event) {
 export function installH3MenuStyles() {
   if (styleInstalled || document.getElementById("terry-h3-shared-menu-module-style")) return;
   styleInstalled = true;
-  const style = document.createElement("style");
-  style.id = "terry-h3-shared-menu-module-style";
+  const style = document.createElement("style"); style.id = "terry-h3-shared-menu-module-style";
   style.textContent = `
 .terry-h3-shared-module-menu{position:fixed!important;z-index:2147483000!important;isolation:isolate!important;pointer-events:auto!important;box-sizing:border-box;color:var(--input-text,#ddd);font-family:Inter,system-ui,sans-serif}
 .terry-h3-role-menu{width:470px;max-height:560px;overflow:auto;padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:var(--comfy-menu-bg,#17191c);box-shadow:0 18px 48px rgba(0,0,0,.52)}
 .terry-h3-role-legend{padding:0 2px 10px;border-bottom:1px solid rgba(255,255,255,.10)}
 .terry-h3-role-title{display:flex;align-items:center;justify-content:space-between;gap:12px}.terry-h3-role-title>b{font-size:13px}.terry-h3-role-title>span{font-size:10px;opacity:.5}
-.terry-h3-role-tabs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.terry-h3-role-action{min-height:28px;padding:3px 9px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(255,255,255,.05);color:inherit;cursor:pointer;font-size:11px;white-space:nowrap}.terry-h3-role-action.is-active{border-color:rgba(0,226,187,.38);background:rgba(0,226,187,.12);color:rgba(205,255,246,.98)}
-.terry-h3-role-row{display:grid;grid-template-columns:54px minmax(0,1fr);gap:10px;align-items:center;padding:9px 7px;border-bottom:1px solid rgba(255,255,255,.055);border-radius:7px}.terry-h3-role-row.is-selectable{cursor:pointer}.terry-h3-role-row.is-selectable:hover{background:rgba(255,255,255,.07)}.terry-h3-role-thumb{width:52px;height:52px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.07);display:grid;place-items:center}.terry-h3-role-thumb img{width:100%;height:100%;object-fit:cover}.terry-h3-role-info{min-width:0}.terry-h3-role-info b,.terry-h3-role-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.terry-h3-role-info b{font-size:11px}.terry-h3-role-info small{margin-top:3px;font-size:9.5px;opacity:.52}.terry-h3-role-row.is-defined .terry-h3-role-info small{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.35}.terry-h3-role-empty{padding:18px 8px;text-align:center;font-size:11px;opacity:.55}
+.terry-h3-role-tabs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}.terry-h3-role-action{display:block;width:auto;min-height:28px;margin:5px 2px;padding:3px 9px;border:1px solid rgba(255,255,255,.13);border-radius:6px;background:rgba(255,255,255,.05);color:inherit;cursor:pointer;font-size:11px;white-space:nowrap}.terry-h3-role-tabs .terry-h3-role-action{display:inline-block;margin:0}.terry-h3-role-action.is-active{border-color:rgba(0,226,187,.38);background:rgba(0,226,187,.12);color:rgba(205,255,246,.98)}
+.terry-h3-role-subhead{padding:10px 4px 4px;font-size:9.5px;opacity:.55}
+.terry-h3-role-row{display:grid;grid-template-columns:54px minmax(0,1fr);gap:10px;align-items:center;padding:9px 7px;border-bottom:1px solid rgba(255,255,255,.055);border-radius:7px}.terry-h3-role-row.is-selectable{cursor:pointer}.terry-h3-role-row.is-selectable:hover{background:rgba(255,255,255,.07)}.terry-h3-role-thumb{width:52px;height:52px;border-radius:7px;overflow:hidden;background:rgba(255,255,255,.07);display:grid;place-items:center}.terry-h3-role-thumb img{width:100%;height:100%;object-fit:cover}.terry-h3-role-info{min-width:0}.terry-h3-role-info b,.terry-h3-role-info small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.terry-h3-role-info b{font-size:11px}.terry-h3-role-info small{margin-top:3px;font-size:9.5px;opacity:.52;white-space:normal;line-height:1.35}.terry-h3-role-row.is-defined .terry-h3-role-info small{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}.terry-h3-role-empty{padding:18px 8px;text-align:center;font-size:11px;opacity:.55}
 .terry-h3-command-menu{width:340px;max-height:380px;overflow:auto;padding:6px;border:1px solid rgba(255,255,255,.14);border-radius:9px;background:var(--comfy-menu-bg,#17191c);box-shadow:0 18px 48px rgba(0,0,0,.52)}
 .terry-h3-command-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 6px 8px;border-bottom:1px solid rgba(255,255,255,.08)}.terry-h3-command-head-title{display:flex;align-items:center;gap:5px}.terry-h3-command-head span{font-size:9px;opacity:.48}.terry-h3-command-back{border:0;background:transparent;color:inherit;font-size:18px;cursor:pointer}.terry-h3-command-item{display:grid;grid-template-columns:70px minmax(0,1fr);gap:7px;align-items:center;width:100%;padding:7px;border:0;border-radius:6px;background:transparent;color:inherit;text-align:left;cursor:pointer}.terry-h3-command-item.is-category{grid-template-columns:28px minmax(0,1fr) auto}.terry-h3-command-item.is-active{background:rgba(255,255,255,.09)}.terry-h3-command-category,.terry-h3-command-category-icon,.terry-h3-command-count{font-size:9px;opacity:.55}.terry-h3-command-text{min-width:0}.terry-h3-command-text b,.terry-h3-command-text small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.terry-h3-command-text b{font-size:11px}.terry-h3-command-text small{margin-top:2px;font-size:9px;opacity:.5}
 `;
@@ -459,39 +485,15 @@ export function installH3MenuStyles() {
 
 export function attachH3Menus({ node, editor, mode = "prompt", onChange = null }) {
   if (!node || !editor) return null;
-  detachH3Menus(editor);
-  installH3MenuStyles();
-  const controller = { node, editor, mode, onChange, menu: null, menuType: null, commandState: null };
-  controllers.set(editor, controller);
-  const onBeforeInput = (event) => {
-    if (event.inputType !== "insertText" || (event.data !== "@" && event.data !== "/")) return;
-    const trigger = event.data;
-    setTimeout(() => trigger === "@" ? openAssetMenu(controller) : openCommandMenu(controller), 0);
-  };
+  detachH3Menus(editor); installH3MenuStyles();
+  const controller = { node, editor, mode, onChange, menu: null, menuType: null, commandState: null }; controllers.set(editor, controller);
+  const onBeforeInput = (event) => { if (event.inputType !== "insertText" || (event.data !== "@" && event.data !== "/")) return; const trigger = event.data; setTimeout(() => trigger === "@" ? openAssetMenu(controller) : openCommandMenu(controller), 0); };
   const onInput = () => { if (controller.menu) queueMicrotask(() => refreshOpenMenu(controller)); };
-  const onKeyDown = (event) => {
-    if (handleCommandKey(controller, event)) { event.preventDefault(); event.stopPropagation(); return; }
-    if (event.key === "Escape" && controller.menu) { closeMenu(controller); event.preventDefault(); event.stopPropagation(); }
-  };
+  const onKeyDown = (event) => { if (handleCommandKey(controller, event)) { event.preventDefault(); event.stopPropagation(); return; } if (event.key === "Escape" && controller.menu) { closeMenu(controller); event.preventDefault(); event.stopPropagation(); } };
   const onBlur = () => setTimeout(() => { if (!controller.menu?.matches?.(":hover")) closeMenu(controller); }, 120);
   const onPointer = (event) => event.stopPropagation();
-  editor.addEventListener("beforeinput", onBeforeInput);
-  editor.addEventListener("input", onInput);
-  editor.addEventListener("keydown", onKeyDown);
-  editor.addEventListener("blur", onBlur);
-  editor.addEventListener("pointerdown", onPointer);
-  controller.cleanup = () => {
-    closeMenu(controller);
-    editor.removeEventListener("beforeinput", onBeforeInput);
-    editor.removeEventListener("input", onInput);
-    editor.removeEventListener("keydown", onKeyDown);
-    editor.removeEventListener("blur", onBlur);
-    editor.removeEventListener("pointerdown", onPointer);
-  };
+  editor.addEventListener("beforeinput", onBeforeInput); editor.addEventListener("input", onInput); editor.addEventListener("keydown", onKeyDown); editor.addEventListener("blur", onBlur); editor.addEventListener("pointerdown", onPointer);
+  controller.cleanup = () => { closeMenu(controller); editor.removeEventListener("beforeinput", onBeforeInput); editor.removeEventListener("input", onInput); editor.removeEventListener("keydown", onKeyDown); editor.removeEventListener("blur", onBlur); editor.removeEventListener("pointerdown", onPointer); };
   return controller;
 }
-export function detachH3Menus(editor) {
-  const controller = controllers.get(editor);
-  controller?.cleanup?.();
-  controllers.delete(editor);
-}
+export function detachH3Menus(editor) { const controller = controllers.get(editor); controller?.cleanup?.(); controllers.delete(editor); }
